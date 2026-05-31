@@ -13,7 +13,8 @@ Static browser simulator for Amazon Bedrock AgentCore security flows. It models 
 - Models client applications as possible technical MCP clients for Gateway when explicitly represented and authorized.
 - Supports handle-to-handle topology drag and drop. Line clicks open a connection editor with dropdowns for relation type, auth mode, and Identity credential provider.
 - Keeps invalid relationships visible as red dashed edges and emits security findings for them.
-- Shows a managed dynamic timeline. Users can build a path manually, reorder steps, clear the path, or use `Magic Path` to derive the simulated route from the current run. The matching topology edges are highlighted directly on the canvas.
+- Shows one managed `Steps` panel. Users can add an edge action as a step, reorder, duplicate, delete, edit action/auth/tool dropdowns, or use `Magic Path` to derive the most governed route. The matching topology edge is highlighted directly on the canvas.
+- Models OAuth `resource` indicators and RAR `authorization_details` in authorization requests, token requests, mock JWT claims, token exchange, and inspectors. `scope` remains visible for compatibility with MCP/OAuth clients.
 - Lets you double click a Policy Engine node to edit an `agentcore-gateway-policy/v1` JSON document and apply it back to the local Gateway policy simulator.
 - Persists scenarios in `localStorage`, and supports JSON import/export and Mermaid sequence export.
 
@@ -84,19 +85,19 @@ Every connection is selected from a dropdown. Invalid combinations can still be 
 
 For SigV4 edges where user context matters, enable `Send inbound OAuth/JWT as custom context header` and choose one of the allowlisted header names. The simulator treats that header as context, not as primary authentication.
 
-## Timeline And Branch Analysis
+## Steps And Branch Analysis
 
-The bottom timeline is a managed console surface, not a passive log.
+The bottom `Steps` panel is the execution plan. It replaces the previous timeline/path split.
 
-- `Magic Path` derives a path from the current simulation events.
-- `Add Step` appends a specific topology edge to the analyzed path.
-- Each path chip can move left/right or be removed.
-- `Clear Path` returns to auto mode.
-- `Sort` orders visible events by index, protocol, or outcome without changing the saved path.
-- The event table scrolls internally, so short and long simulations stay inside the bottom panel.
-- Selecting any event updates the request/response/token/policy inspectors and highlights matching topology edges.
+- Creating a connection automatically creates a default step.
+- Clicking an edge selects its step; if missing, the simulator can add one for that edge.
+- Clicking a step highlights exactly that diagram action and selects its first protocol event for inspection.
+- Each step can be moved up/down, duplicated, deleted, and edited through dropdowns for action, auth strategy, branch, and tool.
+- `Magic Path` rebuilds the order from topology: user/client auth first, runtime ingress, workload identity, Gateway policy/Identity, provider/token exchange, then target calls. Governed Gateway paths are preferred over direct paths unless the scenario is a comparison.
+- `Run` executes steps in order. A failed step is red; later steps are skipped unless the scenario is a direct-vs-Gateway comparison branch.
+- The panel has internal scroll and horizontal overflow so short and long simulations remain manageable.
 
-For branch analysis, explicitly build the path you want to inspect. Unselected branch edges remain visible on the canvas, but only the selected path is treated as the managed route.
+For branch analysis, assign `branchId` values such as `direct` and `gateway`. Each branch can show its own failure without hiding the other branch.
 
 ## OAuth Delegation And Token Exchange Model
 
@@ -107,6 +108,21 @@ The simulator distinguishes three downstream-token strategies:
 | `OBO_TOKEN_EXCHANGE` | AgentCore Identity exchanges the inbound user JWT for a downstream resource token. | `sub` remains the user; `act` identifies the agent/workload actor. |
 | `SCOPED_CLIENT_TOKEN` | Identity asks Keycloak for a new client-credentials token scoped to the agent/client/Gateway. | `sub` is the client/actor; no user subject is preserved. |
 | `TOKEN_EXCHANGE_REQUESTED_PERMISSIONS` | Identity performs RFC 8693 token exchange while requesting a specific resource and scope set. | Keycloak/AS must re-authorize the requested `resource` and `scope`; scopes are not silently expanded. |
+
+The initial authorization request normally asks only for the immediate protected resource, using RFC 8707 `resource`. If an agent later needs Gateway, MCP, or SaaS access, it must request a new scoped token or token exchange with a fresh `resource` and RAR `authorization_details`. Requesting broad permissions up front is possible in the model, but should be treated as a least-privilege warning.
+
+RAR `authorization_details` are represented as typed objects, for example:
+
+```json
+[
+  {
+    "type": "mcp",
+    "locations": ["https://enterprise-tools-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp"],
+    "actions": ["tools/list", "tools/call"],
+    "tools": ["google_drive.search_files"]
+  }
+]
+```
 
 Credential providers can define:
 
@@ -169,8 +185,10 @@ Current automated coverage:
 | External client/agent/Gateway/MCP/API connectivity matrix | OK |
 | Invalid Client App -> MCP relation rejected by legal-edge matrix | OK |
 | Token exchange denied when requested downstream scope exceeds provider grant | OK |
+| Steps migration, auto-step for new edges, Magic Path order, and stop/skip on failure | OK |
+| RFC 8707 `resource` and RAR `authorization_details` on OAuth/token inspector paths | OK |
 | AgentCore-style policy DSL for `principal.hasTag`, `principal.getTag`, `like`, `context.input`, `act` and `sub` | OK |
-| Timeline short path, long path, Magic Path, sort, move, internal scroll and viewport fit | OK |
+| Steps short path, long path, Magic Path, move, delete, duplicate, internal scroll and viewport fit | OK |
 
 Manual browser validation should cover desktop rendering, connection create/edit/delete/reconnect, dropdown-only connection editing, managed timeline path selection, highlighted path edges, and scenario JSON import/export.
 
@@ -180,3 +198,6 @@ Manual browser validation should cover desktop rendering, connection create/edit
 - [AWS AgentCore Policy conditions](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-conditions.html): `principal.hasTag`, `principal.getTag`, scope matching, IAM `principal.id`, and `context.input`.
 - [AWS AgentCore Identity OBO token exchange](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/on-behalf-of-token-exchange.html): `GetWorkloadAccessTokenForJWT`, `GetResourceOauth2Token`, `ON_BEHALF_OF_TOKEN_EXCHANGE`, `TOKEN_EXCHANGE`, `JWT_AUTHORIZATION_GRANT`, `actor_token_content`.
 - [RFC 8693 OAuth 2.0 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693): `subject_token`, `actor_token`, `resource`, `scope`, delegation versus impersonation, and JWT `act` semantics.
+- [RFC 8707 OAuth 2.0 Resource Indicators](https://www.rfc-editor.org/rfc/rfc8707): resource-bound token requests for protected resources.
+- [RFC 9396 OAuth 2.0 Rich Authorization Requests](https://www.rfc-editor.org/rfc/rfc9396): structured `authorization_details` for fine-grained authorization.
+- [MCP draft authorization](https://modelcontextprotocol.io/specification/draft/basic/authorization): MCP authorization metadata and OAuth compatibility expectations.

@@ -5,6 +5,7 @@ import { simulateScenario } from "../engine/simulate";
 import { isLegalEdge, legalEdgeKinds, type EdgeKind } from "../model/edges";
 import type { ExternalApiNode, ExternalGenAiAgentNode, AgentCoreMcpServerNode } from "../model/nodes";
 import { evaluateCondition } from "../engine/policy/localPolicyEngine";
+import { buildMagicSteps, normalizeScenarioSteps, stepFromEdge } from "../model/steps";
 
 function scenario(id: string): Scenario {
   return JSON.parse(JSON.stringify(scenarios.find((item) => item.id === id))) as Scenario;
@@ -18,6 +19,32 @@ function enableMutation(base: Scenario, id: string): Scenario {
 }
 
 describe("AgentCore-Flight-Simulator simulation", () => {
+  it("migrates selectedPath into ordered steps", () => {
+    const s = scenario("01-google-drive-obo");
+    delete s.steps;
+    s.selectedPath = ["e-client-idp", "e-client-runtime", "e-runtime-gateway"];
+    const normalized = normalizeScenarioSteps(s);
+    expect(normalized.steps.map((step) => step.edgeId).slice(0, 3)).toEqual(["e-client-idp", "e-client-runtime", "e-runtime-gateway"]);
+    expect(normalized.steps[0].actionKind).toBe("oauth_authorization_code_pkce");
+  });
+
+  it("adds steps for edges introduced after a preset was loaded", () => {
+    const s = scenario("01-google-drive-obo");
+    const edge = { id: "extra-runtime-idp", source: "agent-travel", target: "idp-keycloak", kind: "runtime_to_authorization_server" as const, authMode: "OAUTH_JWT" as const };
+    s.edges.push(edge);
+    const normalized = normalizeScenarioSteps(s);
+    expect(normalized.steps.some((step) => step.edgeId === edge.id)).toBe(true);
+    expect(stepFromEdge(edge, 99, normalized.nodes).authStrategy).toBe("oauth_authorization_code_pkce");
+  });
+
+  it("computes a governed Magic Path order before Gateway target calls", () => {
+    const s = scenario("01-google-drive-obo");
+    const ordered = buildMagicSteps(s.edges, s.nodes).map((step) => step.edgeId);
+    expect(ordered.indexOf("e-client-idp")).toBeLessThan(ordered.indexOf("e-client-runtime"));
+    expect(ordered.indexOf("e-runtime-gateway")).toBeLessThan(ordered.indexOf("e-gateway-google"));
+    expect(ordered.indexOf("e-gateway-policy")).toBeLessThan(ordered.indexOf("e-gateway-google"));
+  });
+
   it("uses Keycloak OIDC endpoints instead of Cognito endpoints", async () => {
     const s = scenario("01-google-drive-obo");
     const serialized = JSON.stringify(s);
@@ -26,6 +53,8 @@ describe("AgentCore-Flight-Simulator simulation", () => {
     const result = await simulateScenario({ scenario: s, userPrompt: s.initialUserPrompt, mutations: s.mutations });
     expect(result.events.find((event) => event.id === "oauth-authorize")?.url).toContain("/protocol/openid-connect/auth?");
     expect(result.events.find((event) => event.id === "oauth-token-request")?.url).toBe("https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token");
+    expect(result.events.find((event) => event.id === "oauth-authorize")?.url).toContain("resource=agentcore-runtime");
+    expect(result.events.find((event) => event.id === "oauth-token-response")?.token?.authorizationDetails?.[0]?.type).toBe("agentcore_runtime");
   });
 
   it("rejects JWT audience replay", async () => {
@@ -55,6 +84,8 @@ describe("AgentCore-Flight-Simulator simulation", () => {
     const policy = result.events.find((event) => event.id === "policy-workday.get_compensation");
     expect(policy?.policyDecision?.effect).toBe("deny");
     expect(result.securityFindings.some((finding) => finding.title.includes("Workday compensation"))).toBe(true);
+    expect(result.steps.find((step) => step.edgeId === "e-runtime-gateway")?.status).toBe("failed");
+    expect(result.steps.find((step) => step.edgeId === "e-gateway-workday")?.status).toBe("skipped");
   });
 
   it("filters tools/list by potentially allowed policy", async () => {

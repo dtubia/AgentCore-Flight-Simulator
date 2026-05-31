@@ -22,7 +22,13 @@ function initialScenario(): Scenario {
         localStorage.removeItem(STORAGE_KEY);
         return cloneScenario(scenarios[0]);
       }
-      return JSON.parse(saved) as Scenario;
+      const parsed = JSON.parse(saved) as unknown;
+      const result = scenarioSchema.safeParse(parsed);
+      if (!result.success) {
+        localStorage.removeItem(STORAGE_KEY);
+        return cloneScenario(scenarios[0]);
+      }
+      return parsed as Scenario;
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -33,6 +39,7 @@ function initialScenario(): Scenario {
 export interface AppState {
   scenario: Scenario;
   result?: SimulationResult;
+  runError?: string;
   selectedEventId?: string;
   userPrompt: string;
   scenarioJsonDraft: string;
@@ -61,6 +68,7 @@ export const useAppStore = create<AppState>((set, get) => {
   const scenario = initialScenario();
   return {
     scenario,
+    runError: undefined,
     userPrompt: scenario.initialUserPrompt,
     scenarioJsonDraft: JSON.stringify(scenario, null, 2),
     async loadScenario(scenarioId) {
@@ -72,8 +80,12 @@ export const useAppStore = create<AppState>((set, get) => {
     async run() {
       const { scenario, userPrompt } = get();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
-      const result = await simulateScenario({ scenario, selectedPath: scenario.selectedPath, userPrompt, mutations: scenario.mutations });
-      set({ result, selectedEventId: result.events[0]?.id, scenarioJsonDraft: JSON.stringify(scenario, null, 2), scenarioJsonError: undefined });
+      try {
+        const result = await simulateScenario({ scenario, selectedPath: scenario.selectedPath, userPrompt, mutations: scenario.mutations });
+        set({ result, runError: undefined, selectedEventId: result.events[0]?.id, scenarioJsonDraft: JSON.stringify(scenario, null, 2), scenarioJsonError: undefined });
+      } catch (error) {
+        set({ runError: error instanceof Error ? error.message : "Simulation failed." });
+      }
     },
     selectEvent(eventId) {
       set({ selectedEventId: eventId });

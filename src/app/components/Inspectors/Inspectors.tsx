@@ -65,9 +65,9 @@ export function Inspectors() {
   return (
     <Panel title={tabs.find((item) => item.id === tab)?.label ?? "Inspectors"} className="h-full">
       <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap gap-1 border-b border-console-line bg-console-rail p-2">
+      <div role="tablist" aria-label="Inspector panels" className="flex flex-wrap gap-1 border-b border-console-line bg-console-rail p-2">
         {tabs.map((item) => (
-          <button key={item.id} className={`px-2 py-1 text-[11px] ${tab === item.id ? "bg-console-cyan text-console-bg" : "bg-console-panel2 text-console-muted"}`} onClick={() => setTab(item.id)}>
+          <button key={item.id} role="tab" aria-selected={tab === item.id} aria-controls={`inspector-panel-${item.id}`} className={`px-2 py-1 text-[11px] ${tab === item.id ? "bg-console-cyan text-console-bg" : "bg-console-panel2 text-console-muted"}`} onClick={() => setTab(item.id)}>
             {item.label}
           </button>
         ))}
@@ -79,7 +79,7 @@ export function Inspectors() {
           <div className={`mt-1 status-${event.verdict.outcome}`}>{event.verdict.reason}</div>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div id={`inspector-panel-${tab}`} role="tabpanel" className="min-h-0 flex-1">
         {tab === "request" ? <JsonEditor value={{ method: event?.method, url: event?.url, protocol: event?.protocol, traceId: event?.traceId, correlationId: event?.correlationId, ...event?.request, sigv4: event?.sigv4 }} /> : null}
         {tab === "response" ? <JsonEditor value={event?.response} /> : null}
         {tab === "token" ? <TokenInspector token={event?.token} /> : null}

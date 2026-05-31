@@ -7,7 +7,7 @@ import { Inspectors } from "./components/Inspectors/Inspectors";
 import { useAppStore } from "./store";
 
 export function App() {
-  const { run, result, scenario } = useAppStore();
+  const { run, result, runError, scenario } = useAppStore();
   useEffect(() => {
     void run();
   }, [run]);
@@ -25,7 +25,11 @@ export function App() {
                 <span className="truncate font-semibold">{scenario.name}</span>
                 <span className="flex-shrink-0 text-console-muted">{scenario.nodes.length} nodes / {scenario.edges.length} edges</span>
               </div>
-              <div className={`flex-shrink-0 ${result?.status === "success" ? "status-allow" : result?.status === "failed" ? "status-deny" : "status-warn"}`}>{result?.status ?? "idle"}</div>
+              {runError ? (
+                <div className="flex-shrink-0 truncate max-w-xs status-deny" title={runError}>error: {runError}</div>
+              ) : (
+                <div className={`flex-shrink-0 ${result?.status === "success" ? "status-allow" : result?.status === "failed" ? "status-deny" : "status-warn"}`}>{result?.status ?? "idle"}</div>
+              )}
             </div>
             <div className="min-h-0 flex-1">
               <TopologyCanvas />

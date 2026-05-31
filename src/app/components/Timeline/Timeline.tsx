@@ -84,9 +84,9 @@ export function Timeline() {
         {pathEdges.length ? pathEdges.map((edge, index) => (
           <span key={edge.id} className={`inline-flex h-[30px] flex-shrink-0 items-center gap-1 border px-1.5 font-mono text-[10px] ${edge.invalid ? "border-console-red/70 bg-console-red/10 text-console-red" : "border-console-cyan/40 bg-console-cyan/10 text-console-cyan"}`}>
             <span className="max-w-[250px] truncate">{index + 1}. {edge.source} &gt; {edge.target}</span>
-            <button title="Move earlier" className="border border-transparent p-0.5 hover:border-console-cyan disabled:opacity-30" disabled={index === 0} onClick={() => void movePathEdge(edge.id, -1)}><ChevronLeft size={12} /></button>
-            <button title="Move later" className="border border-transparent p-0.5 hover:border-console-cyan disabled:opacity-30" disabled={index === pathEdges.length - 1} onClick={() => void movePathEdge(edge.id, 1)}><ChevronRight size={12} /></button>
-            <button title="Remove from path" className="border border-transparent p-0.5 hover:border-console-red hover:text-console-red" onClick={() => void removePathEdge(edge.id)}><X size={12} /></button>
+            <button aria-label={`Move step ${index + 1} earlier`} title="Move earlier" className="border border-transparent p-0.5 hover:border-console-cyan disabled:opacity-30" disabled={index === 0} onClick={() => void movePathEdge(edge.id, -1)}><ChevronLeft size={12} /></button>
+            <button aria-label={`Move step ${index + 1} later`} title="Move later" className="border border-transparent p-0.5 hover:border-console-cyan disabled:opacity-30" disabled={index === pathEdges.length - 1} onClick={() => void movePathEdge(edge.id, 1)}><ChevronRight size={12} /></button>
+            <button aria-label={`Remove step ${index + 1} from path`} title="Remove from path" className="border border-transparent p-0.5 hover:border-console-red hover:text-console-red" onClick={() => void removePathEdge(edge.id)}><X size={12} /></button>
           </span>
         )) : (
           <div className="font-mono text-[10px] text-console-muted">Auto mode. Use Magic Path to materialize the current route, or add specific edges to analyze one branch.</div>

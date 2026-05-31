@@ -110,9 +110,10 @@ export function identityOutboundOauthEvents(args: {
           "requested_token_type=urn:ietf:params:oauth:token-type:access_token",
           `resource=${encodeURIComponent(args.requestedResource ?? args.providerName)}`,
           `audience=${encodeURIComponent(args.providerName)}`,
-          `scope=${encodeURIComponent(args.scopes.join(" "))}`
+          `scope=${encodeURIComponent(args.scopes.join(" "))}`,
+          `authorization_details=${encodeURIComponent(JSON.stringify([{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }]))}`
         ].filter(Boolean).join("&")
-      : `grant_type=client_credentials&client_id=${encodeURIComponent(args.actor)}&client_assertion=WORKLOAD_IDENTITY_ASSERTION_SIMULATED&scope=${encodeURIComponent(args.scopes.join(" "))}`;
+      : `grant_type=client_credentials&client_id=${encodeURIComponent(args.actor)}&client_assertion=WORKLOAD_IDENTITY_ASSERTION_SIMULATED&scope=${encodeURIComponent(args.scopes.join(" "))}&resource=${encodeURIComponent(args.requestedResource ?? args.providerName)}&authorization_details=${encodeURIComponent(JSON.stringify([{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }]))}`;
 
   const requestEvent: TimelineEvent = {
     id: `identity-resolve-provider-${args.providerName}`,
@@ -282,6 +283,7 @@ export function identityOutboundOauthEvents(args: {
             issuer,
             scope: args.scopes.join(" "),
             resource: args.requestedResource ?? args.providerName,
+            authorization_details: [{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }],
             delegation: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? { actor: args.actor, subject: args.subject, act: actClaim } : { actor: args.actor, subject: null },
             claims: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? { sub: args.subject, act: actClaim, scope: args.scopes.join(" ") } : { sub: args.actor, scope: args.scopes.join(" ") }
           }
@@ -295,7 +297,9 @@ export function identityOutboundOauthEvents(args: {
       kind: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? "obo" : "autonomous",
       boundActor: args.actor,
       boundSubject: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? args.subject : undefined,
-      downstreamAudience: args.requestedResource ?? issuer
+      downstreamAudience: args.requestedResource ?? issuer,
+      resource: args.requestedResource ?? args.providerName,
+      authorizationDetails: [{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }]
     },
     verdict: {
       outcome: requestAccepted ? (args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? "allow" : "warn") : "deny",
@@ -335,6 +339,7 @@ export function identityOutboundOauthEvents(args: {
             expiresIn: 3600,
             scope: args.scopes.join(" "),
             resource: args.requestedResource ?? args.providerName,
+            authorization_details: [{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }],
             strategy: tokenStrategy,
             delegation: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? { actor: args.actor, subject: args.subject, act: actClaim } : { actor: args.actor, subject: null },
             tokenVaultArn: args.identity.tokenVault.arn
@@ -349,7 +354,9 @@ export function identityOutboundOauthEvents(args: {
       kind: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? "obo" : "autonomous",
       boundActor: args.actor,
       boundSubject: args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? args.subject : undefined,
-      downstreamAudience: args.requestedResource ?? args.providerName
+      downstreamAudience: args.requestedResource ?? args.providerName,
+      resource: args.requestedResource ?? args.providerName,
+      authorizationDetails: [{ type: "mcp", locations: [args.requestedResource ?? args.providerName], actions: ["tools/call"], credentialProvider: args.providerName }]
     },
     verdict: {
       outcome: requestAccepted ? (args.flow === "ON_BEHALF_OF_TOKEN_EXCHANGE" ? "allow" : "warn") : "deny",

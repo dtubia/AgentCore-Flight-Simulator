@@ -17,6 +17,8 @@ import type {
 } from "../model/nodes";
 import type { MutationConfig, Scenario, SimulationInput, SimulationResult } from "../model/schema";
 import type { ScenarioEdge } from "../model/edges";
+import type { ScenarioStep } from "../model/steps";
+import { normalizeScenarioSteps } from "../model/steps";
 import { directA2AEvents } from "./steps/a2a";
 import { forwardedOAuthContextEvent, gatewayToolCallEvent, gatewayToolsListEvent } from "./steps/gateway";
 import { identityOutboundOauthEvents, workloadTokenEvent } from "./steps/identity";
@@ -117,6 +119,14 @@ async function buildUserToken(args: {
     clientId: args.client.clientId,
     subject: args.mutations.has("change_subject_bob") ? "user-bob" : args.user.id,
     scopes,
+    resource: args.mutations.has("wrong_audience") ? "https://www.googleapis.com/drive/v3" : args.runtime.inboundAuth.allowedAudiences?.[0] ?? "agentcore-runtime:default",
+    authorizationDetails: [
+      {
+        type: "agentcore_runtime",
+        locations: [args.runtime.runtimeArn],
+        actions: ["agent.invoke"]
+      }
+    ],
     tenant: args.mutations.has("change_tenant_claim") ? "other-tenant" : args.user.tenant,
     groups: args.user.groups,
     lifetimeSeconds: args.mutations.has("expire_token") ? -60 : args.idp.tokenLifetimeSeconds
@@ -136,6 +146,14 @@ async function buildGatewayToken(args: {
     clientId: args.gateway.inboundAuth.allowedClients?.[0] ?? "agent-runtime-client",
     subject: args.user.id,
     scopes: ["mcp.tools.list", "mcp.tools.call"],
+    resource: args.gateway.inboundAuth.allowedAudiences?.[0] ?? "agentcore-gateway:enterprise-tools",
+    authorizationDetails: [
+      {
+        type: "mcp",
+        locations: [args.gateway.gatewayUrl],
+        actions: ["tools/list", "tools/call"]
+      }
+    ],
     tenant: args.user.tenant,
     groups: args.user.groups
   });
@@ -431,11 +449,30 @@ function dynamicTopologyEvent(args: {
   if (!source || !target || args.edge.invalid) return undefined;
   const base = {
     index: args.index,
+    edgeId: args.edge.id,
     sourceNodeId: source.id,
     targetNodeId: target.id,
     traceId: args.traceId,
     correlationId: args.correlationId
   };
+  if (args.edge.kind === "user_to_client") {
+    const client = target as ClientAppNode;
+    return {
+      ...base,
+      id: `topology-user-client-${args.edge.id}`,
+      title: "User opens client application",
+      protocol: "HTTP",
+      method: "GET",
+      url: client.redirectUri.replace("/callback", "/"),
+      request: { headers: { "X-Correlation-Id": args.correlationId }, body: undefined },
+      response: { status: 200, body: { app: client.clientId, next: "START_AUTHORIZATION_CODE_PKCE" } },
+      verdict: {
+        outcome: "info",
+        reason: "The human user reaches the client app before the OAuth authorization request.",
+        securityNotes: ["No access token exists yet; the client must initiate authorization before invoking protected resources."]
+      }
+    };
+  }
   if (args.edge.kind === "identity_to_authorization_server" || args.edge.kind === "authorization_server_to_identity") {
     const identity = (source.type === "agentcore_identity" ? source : target.type === "agentcore_identity" ? target : undefined) as AgentCoreIdentityNode | undefined;
     const idp = (source.type === "authorization_server" ? source : target.type === "authorization_server" ? target : undefined) as AuthorizationServerNode | undefined;
@@ -601,11 +638,12 @@ function appendDynamicTopologyEvents(args: {
   traceId: string;
   correlationId: string;
   mutations: Set<string>;
-  selectedPath?: string[];
+  steps?: ScenarioStep[];
 }): void {
   const dynamicKinds = new Set<ScenarioEdge["kind"]>([
     "identity_to_authorization_server",
     "authorization_server_to_identity",
+    "user_to_client",
     "runtime_to_authorization_server",
     "gateway_to_authorization_server_interceptor",
     "client_to_gateway_mcp",
@@ -619,9 +657,9 @@ function appendDynamicTopologyEvents(args: {
     "runtime_to_external_api",
     "gateway_to_external_api_target"
   ]);
-  const selectedPath = args.selectedPath?.length ? args.selectedPath : undefined;
-  const edges = selectedPath
-    ? selectedPath.map((edgeId) => args.scenario.edges.find((edge) => edge.id === edgeId)).filter((edge): edge is ScenarioEdge => Boolean(edge))
+  const stepEdgeIds = args.steps?.length ? args.steps.map((step) => step.edgeId) : undefined;
+  const edges = stepEdgeIds
+    ? stepEdgeIds.map((edgeId) => args.scenario.edges.find((edge) => edge.id === edgeId)).filter((edge): edge is ScenarioEdge => Boolean(edge))
     : args.scenario.edges;
   for (const edge of edges) {
     if (!dynamicKinds.has(edge.kind)) continue;
@@ -630,21 +668,74 @@ function appendDynamicTopologyEvents(args: {
   }
 }
 
-function filterEventsForSelectedPath(events: TimelineEvent[], scenario: Scenario, selectedPath?: string[]): TimelineEvent[] {
-  if (!selectedPath?.length) return events;
-  const selected = new Set(selectedPath);
+function eventEdgeId(event: TimelineEvent, scenario: Scenario): string | undefined {
+  if (event.edgeId) return event.edgeId;
+  if (event.id.startsWith("oauth-")) {
+    return scenario.edges.find((edge) => edge.kind === "client_to_idp" || edge.kind === "external_agent_to_authorization_server")?.id;
+  }
+  if (event.id.startsWith("identity-pep") || event.id.startsWith("identity-resolve-provider") || event.id.startsWith("identity-outbound")) {
+    return scenario.edges.find((edge) => edge.kind === "gateway_to_identity")?.id ?? scenario.edges.find((edge) => edge.kind === "runtime_to_identity")?.id;
+  }
   const edgesByPair = new Map<string, ScenarioEdge[]>();
   for (const edge of scenario.edges) {
     const key = `${edge.source}->${edge.target}`;
     edgesByPair.set(key, [...(edgesByPair.get(key) ?? []), edge]);
   }
-  return events
-    .filter((event) => {
-      const matchingEdges = edgesByPair.get(`${event.sourceNodeId}->${event.targetNodeId}`);
-      if (!matchingEdges?.length) return true;
-      return matchingEdges.some((edge) => selected.has(edge.id));
+  const matchingEdges = edgesByPair.get(`${event.sourceNodeId}->${event.targetNodeId}`);
+  if (!matchingEdges?.length) return undefined;
+  if (event.id === "runtime-invoke") return matchingEdges.find((edge) => edge.kind === "client_to_runtime" || edge.kind === "user_to_runtime" || edge.kind === "external_agent_to_runtime_http")?.id;
+  if (event.id === "identity-workload-token") return matchingEdges.find((edge) => edge.kind === "runtime_to_identity")?.id;
+  if (event.id === "gateway-tools-list" || event.id.startsWith("gateway-tool-call")) return matchingEdges.find((edge) => edge.kind === "runtime_to_gateway_mcp" || edge.kind === "client_to_gateway_mcp" || edge.kind === "external_agent_to_gateway_mcp")?.id;
+  if (event.id.startsWith("policy-")) return matchingEdges.find((edge) => edge.kind === "gateway_to_policy_engine")?.id;
+  if (event.id.startsWith("identity-as-token")) return matchingEdges.find((edge) => edge.kind === "identity_to_authorization_server" || edge.kind === "authorization_server_to_identity")?.id;
+  if (event.id === "direct-mcp-call") return matchingEdges.find((edge) => edge.kind === "runtime_to_mcp_direct" || edge.kind === "external_agent_to_mcp_direct")?.id;
+  if (event.id === "a2a-agent-card" || event.id === "a2a-message-send") return matchingEdges.find((edge) => edge.kind === "runtime_to_runtime_a2a" || edge.kind === "external_agent_to_runtime_a2a")?.id;
+  if (event.id === "gateway-runtime-sigv4") return matchingEdges.find((edge) => edge.kind === "gateway_to_http_runtime_target")?.id;
+  if (event.id.startsWith("target-mcp-call")) return matchingEdges.find((edge) => edge.kind === "gateway_to_mcp_target")?.id;
+  return matchingEdges[0]?.id;
+}
+
+function eventsForSteps(events: TimelineEvent[], scenario: Scenario, steps: ScenarioStep[]): { events: TimelineEvent[]; steps: ScenarioStep[] } {
+  if (!steps.length) return { events: events.map((event, index) => ({ ...event, index: index + 1 })), steps };
+  const stepByEdgeId = new Map(steps.map((step) => [step.edgeId, step]));
+  const orderedSteps = [...steps].sort((a, b) => a.order - b.order);
+  const annotated = events
+    .map((event) => {
+      const edgeId = eventEdgeId(event, scenario);
+      const step = edgeId ? stepByEdgeId.get(edgeId) : undefined;
+      return step ? { ...event, edgeId, stepId: step.id } : { ...event, edgeId };
     })
-    .map((event, index) => ({ ...event, index: index + 1 }));
+    .filter((event) => !event.edgeId || stepByEdgeId.has(event.edgeId));
+  const eventsByStep = new Map<string, TimelineEvent[]>();
+  for (const event of annotated) {
+    if (!event.stepId) continue;
+    eventsByStep.set(event.stepId, [...(eventsByStep.get(event.stepId) ?? []), event]);
+  }
+
+  const comparison = scenario.id.includes("direct-vs") || scenario.id.includes("agent-to-agent-direct-vs-gateway");
+  let stopped = false;
+  const stoppedBranches = new Set<string>();
+  const orderedEvents: TimelineEvent[] = [];
+  const nextSteps: ScenarioStep[] = [];
+  for (const step of orderedSteps) {
+    const branch = step.branchId ?? "main";
+    const shouldSkip = comparison ? stoppedBranches.has(branch) : stopped;
+    const stepEvents = eventsByStep.get(step.id) ?? [];
+    if (shouldSkip) {
+      nextSteps.push({ ...step, status: "skipped" });
+      continue;
+    }
+    orderedEvents.push(...stepEvents);
+    const hasDeny = stepEvents.some((event) => event.verdict.outcome === "deny");
+    const hasWarn = stepEvents.some((event) => event.verdict.outcome === "warn");
+    const status: ScenarioStep["status"] = hasDeny ? "failed" : hasWarn ? "warning" : stepEvents.length ? "success" : "skipped";
+    nextSteps.push({ ...step, status });
+    if (hasDeny && step.stopOnFailure !== false) {
+      if (comparison) stoppedBranches.add(branch);
+      else stopped = true;
+    }
+  }
+  return { events: orderedEvents.map((event, index) => ({ ...event, index: index + 1 })), steps: nextSteps };
 }
 
 function forwardedHeaderForEdge(scenario: Scenario, kind: ScenarioEdge["kind"], source: string, target: string): string | undefined {
@@ -721,9 +812,9 @@ function addCommonFindings(args: {
 }
 
 export async function simulateScenario(input: SimulationInput): Promise<SimulationResult> {
-  const scenario = input.scenario;
+  const scenario = normalizeScenarioSteps(input.scenario);
   const mutationSet = activeMutationIds(input.mutations);
-  const selectedPath = input.selectedPath?.length ? input.selectedPath : scenario.selectedPath;
+  const steps = input.steps?.length ? input.steps : scenario.steps ?? [];
   const events: TimelineEvent[] = [];
   const findings: SecurityFinding[] = [];
   const traceId = `trace-${scenario.id}-0001`;
@@ -751,7 +842,22 @@ export async function simulateScenario(input: SimulationInput): Promise<Simulati
   const userToken = await buildUserToken({ scenario, user, client, idp, runtime, mutations: mutationSet });
   const gatewayToken = gateway ? await buildGatewayToken({ user, idp, gateway }) : undefined;
 
-  const oauthEvents = oauthPkceEvents({ base: { index: 1, traceId, correlationId }, user, client, idp, token: userToken, scopes: ["openid", "profile", "agent.invoke"] });
+  const oauthEvents = oauthPkceEvents({
+    base: { index: 1, traceId, correlationId },
+    user,
+    client,
+    idp,
+    token: userToken,
+    scopes: ["openid", "profile", "agent.invoke"],
+    resource: runtime.inboundAuth.allowedAudiences?.[0] ?? runtime.runtimeArn,
+    authorizationDetails: [
+      {
+        type: "agentcore_runtime",
+        locations: [runtime.runtimeArn],
+        actions: ["agent.invoke"]
+      }
+    ]
+  });
   events.push(...oauthEvents);
 
   const runtimeEvent = runtimeInvocationEvent({
@@ -767,7 +873,7 @@ export async function simulateScenario(input: SimulationInput): Promise<Simulati
   events.push(runtimeEvent);
   if (runtimeEvent.verdict.outcome === "deny" || scenario.id === "02-wrong-audience") {
     addCommonFindings({ findings, scenario, events, mutations: mutationSet });
-    return finish(scenario, events, findings, selectedPath);
+    return finish(scenario, events, findings, steps);
   }
 
   events.push(
@@ -781,7 +887,7 @@ export async function simulateScenario(input: SimulationInput): Promise<Simulati
       issuer: String(userToken.claims?.iss ?? idp.issuer)
     })
   );
-  appendDynamicTopologyEvents({ scenario, events, traceId, correlationId, mutations: mutationSet, selectedPath });
+  appendDynamicTopologyEvents({ scenario, events, traceId, correlationId, mutations: mutationSet, steps });
 
   if (scenario.id === "01-google-drive-obo") {
     runGoogleDriveScenario({ scenario, events, findings, mutationSet, traceId, correlationId, runtime, identity, authorizationServer: idp, gateway, gatewayToken, userToken, user, policyEngine });
@@ -794,7 +900,7 @@ export async function simulateScenario(input: SimulationInput): Promise<Simulati
   }
 
   addCommonFindings({ findings, scenario, events, mutations: mutationSet });
-  return finish(scenario, events, findings, selectedPath);
+  return finish(scenario, events, findings, steps);
 }
 
 function runGoogleDriveScenario(args: {
@@ -1089,17 +1195,18 @@ function runA2AScenario(args: {
   );
 }
 
-function finish(scenario: Scenario, events: TimelineEvent[], findings: SecurityFinding[], selectedPath?: string[]): SimulationResult {
+function finish(scenario: Scenario, events: TimelineEvent[], findings: SecurityFinding[], steps: ScenarioStep[]): SimulationResult {
   const securityFindings = uniqueFindings(findings);
-  const filteredEvents = filterEventsForSelectedPath(events, scenario, selectedPath);
+  const { events: filteredEvents, steps: resultSteps } = eventsForSteps(events, scenario, steps);
   return {
     status: statusFromEvents(filteredEvents),
     events: filteredEvents,
+    steps: resultSteps,
     securityFindings,
     generatedArtifacts: {
       mermaid: buildMermaid(filteredEvents, scenario),
       curlSnippets: filteredEvents.map(buildCurl).filter((snippet): snippet is string => Boolean(snippet)),
-      traceJson: { scenarioId: scenario.id, selectedPath: selectedPath ?? [], status: statusFromEvents(filteredEvents), events: filteredEvents, securityFindings }
+      traceJson: { scenarioId: scenario.id, steps: resultSteps, status: statusFromEvents(filteredEvents), events: filteredEvents, securityFindings }
     }
   };
 }

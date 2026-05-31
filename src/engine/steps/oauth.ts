@@ -1,6 +1,6 @@
 import type { TimelineEvent } from "../../model/events";
 import type { AuthorizationServerNode, ClientAppNode, UserNode } from "../../model/nodes";
-import type { TokenArtifact } from "../../model/auth";
+import type { TokenArtifact, TokenAuthorizationDetail } from "../../model/auth";
 
 interface EventBase {
   index: number;
@@ -15,18 +15,34 @@ export function oauthPkceEvents(args: {
   idp: AuthorizationServerNode;
   token: TokenArtifact;
   scopes: string[];
+  resource?: string;
+  authorizationDetails?: TokenAuthorizationDetail[];
 }): TimelineEvent[] {
   const authorizationEndpoint = args.idp.authorizationEndpoint ?? `${args.idp.issuer}/protocol/openid-connect/auth`;
   const tokenEndpoint = args.idp.tokenEndpoint ?? `${args.idp.issuer}/protocol/openid-connect/token`;
   const authorizeUrl = new URL(authorizationEndpoint);
-  authorizeUrl.search = `response_type=code&client_id=${encodeURIComponent(args.client.clientId)}&redirect_uri=${encodeURIComponent(
-    args.client.redirectUri
-  )}&scope=${encodeURIComponent(args.scopes.join(" "))}&code_challenge=PKCE_CHALLENGE_SIMULATED&code_challenge_method=S256&state=STATE_SIMULATED`;
+  authorizeUrl.search = [
+    "response_type=code",
+    `client_id=${encodeURIComponent(args.client.clientId)}`,
+    `redirect_uri=${encodeURIComponent(args.client.redirectUri)}`,
+    `scope=${encodeURIComponent(args.scopes.join(" "))}`,
+    args.resource ? `resource=${encodeURIComponent(args.resource)}` : "",
+    args.authorizationDetails?.length ? `authorization_details=${encodeURIComponent(JSON.stringify(args.authorizationDetails))}` : "",
+    "code_challenge=PKCE_CHALLENGE_SIMULATED",
+    "code_challenge_method=S256",
+    "state=STATE_SIMULATED"
+  ].filter(Boolean).join("&");
   const host = authorizeUrl.host;
   const tokenHost = new URL(tokenEndpoint).host;
-  const tokenBody = `grant_type=authorization_code&client_id=${args.client.clientId}&code=AUTH_CODE_123&redirect_uri=${encodeURIComponent(
-    args.client.redirectUri
-  )}&code_verifier=PKCE_VERIFIER_SIMULATED`;
+  const tokenBody = [
+    "grant_type=authorization_code",
+    `client_id=${args.client.clientId}`,
+    "code=AUTH_CODE_123",
+    `redirect_uri=${encodeURIComponent(args.client.redirectUri)}`,
+    "code_verifier=PKCE_VERIFIER_SIMULATED",
+    args.resource ? `resource=${encodeURIComponent(args.resource)}` : "",
+    args.authorizationDetails?.length ? `authorization_details=${encodeURIComponent(JSON.stringify(args.authorizationDetails))}` : ""
+  ].filter(Boolean).join("&");
   const common = {
     traceId: args.base.traceId,
     correlationId: args.base.correlationId
@@ -70,7 +86,7 @@ export function oauthPkceEvents(args: {
       protocol: "OAuth2",
       method: "POST",
       url: `${authorizationEndpoint}/consent`,
-      request: { body: { client_id: args.client.clientId, scopes: args.scopes } },
+      request: { body: { client_id: args.client.clientId, scopes: args.scopes, resource: args.resource, authorization_details: args.authorizationDetails } },
       response: { status: 200, body: { consent: "granted" } },
       verdict: { outcome: "info", reason: "The user grants the requested scopes.", securityNotes: ["Consent does not override resource server audience validation."] }
     },
@@ -113,7 +129,7 @@ export function oauthPkceEvents(args: {
       method: "POST",
       url: tokenEndpoint,
       request: { headers: { Host: tokenHost, "Content-Type": "application/x-www-form-urlencoded" }, body: tokenBody },
-      response: { status: 200, body: { access_token: "ACCESS_TOKEN_SIMULATED", token_type: "Bearer", expires_in: 3600, scope: args.scopes.join(" ") } },
+      response: { status: 200, body: { access_token: "ACCESS_TOKEN_SIMULATED", token_type: "Bearer", expires_in: 3600, scope: args.scopes.join(" "), resource: args.resource, authorization_details: args.authorizationDetails } },
       token: args.token,
       verdict: { outcome: "allow", reason: "A locally signed mock JWT is issued.", securityNotes: ["The JWT is real locally signed test data, not a real IdP token."] }
     }

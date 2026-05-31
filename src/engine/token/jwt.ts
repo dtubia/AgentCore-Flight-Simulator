@@ -1,5 +1,5 @@
 import { decodeJwt, decodeProtectedHeader, jwtVerify, SignJWT } from "jose";
-import type { InboundAuthConfig, TokenArtifact, TokenValidationResult } from "../../model/auth";
+import type { InboundAuthConfig, TokenArtifact, TokenAuthorizationDetail, TokenValidationResult } from "../../model/auth";
 
 const SECRET = new TextEncoder().encode("AGENTCORE_OAUTH_MISSION_CONTROL_SIMULATED_SECRET");
 export const SIM_NOW = Math.floor(Date.parse("2026-05-30T12:00:00Z") / 1000);
@@ -13,6 +13,8 @@ export interface MockAccessTokenOptions {
   tenant: string;
   groups: string[];
   lifetimeSeconds?: number;
+  resource?: string | string[];
+  authorizationDetails?: TokenAuthorizationDetail[];
   extraClaims?: Record<string, unknown>;
 }
 
@@ -26,6 +28,8 @@ export async function createMockAccessToken(options: MockAccessTokenOptions): Pr
     scope: options.scopes.join(" "),
     tenant: options.tenant,
     groups: options.groups,
+    resource: options.resource ?? options.audience,
+    authorization_details: options.authorizationDetails,
     iat: SIM_NOW,
     exp,
     jti: "jwt-001",
@@ -42,7 +46,9 @@ export async function createMockAccessToken(options: MockAccessTokenOptions): Pr
     claims,
     kind: "user-delegated",
     boundSubject: options.subject,
-    downstreamAudience: options.audience
+    downstreamAudience: options.audience,
+    resource: options.resource ?? options.audience,
+    authorizationDetails: options.authorizationDetails
   };
 }
 
@@ -108,7 +114,9 @@ export async function validateTokenAgainstAuth(
       validation: base,
       kind: "user-delegated",
       boundSubject: String(claims.sub ?? ""),
-      downstreamAudience: audience
+      downstreamAudience: audience,
+      resource: claims.resource as string | string[] | undefined,
+      authorizationDetails: claims.authorization_details as TokenAuthorizationDetail[] | undefined
     },
     validation: base
   };

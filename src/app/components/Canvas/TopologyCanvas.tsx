@@ -632,7 +632,7 @@ function PolicyEditor({
 }
 
 function CanvasInner() {
-  const { scenario, result, selectedEventId, updateNodes, addNode, updateNode, addEdge, updateEdge, deleteEdge } = useAppStore();
+  const { scenario, result, selectedEventId, selectedStepId, updateNodes, addNode, updateNode, addEdge, updateEdge, deleteEdge, selectStep, addStepForEdge } = useAppStore();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [pendingSourceNodeId, setPendingSourceNodeId] = useState<string | undefined>();
   const [pendingSourceHandle, setPendingSourceHandle] = useState<"out" | "control" | undefined>();
@@ -664,17 +664,12 @@ function CanvasInner() {
   }, [dragPreview?.sourceHandle, dragPreview?.targetId, dragSourceNodeId, pendingSourceHandle, pendingSourceNodeId, reconnectDraft, reconnecting, scenario, selectedEdgeId]);
   const edges = useMemo(() => flowEdgesFromScenario(scenario), [scenario]);
   const activePathEdgeIds = useMemo(() => {
+    const selectedStep = (result?.steps ?? scenario.steps ?? []).find((step) => step.id === selectedStepId);
+    if (selectedStep) return new Set([selectedStep.edgeId]);
     const selectedEvent = result?.events.find((event) => event.id === selectedEventId) ?? result?.events[0];
-    const activeEvents = result?.events.filter((event) => selectedEvent && event.index <= selectedEvent.index) ?? [];
-    const ids = new Set<string>();
-    for (const event of activeEvents) {
-      for (const edge of scenario.edges) {
-        if (edge.source === event.sourceNodeId && edge.target === event.targetNodeId) ids.add(edge.id);
-      }
-    }
-    return ids;
-  }, [result?.events, scenario.edges, selectedEventId]);
-  const plannedPathEdgeIds = useMemo(() => new Set(scenario.selectedPath ?? []), [scenario.selectedPath]);
+    return new Set(selectedEvent?.edgeId ? [selectedEvent.edgeId] : []);
+  }, [result?.events, result?.steps, scenario.steps, selectedEventId, selectedStepId]);
+  const plannedPathEdgeIds = useMemo(() => new Set((scenario.steps ?? []).map((step) => step.edgeId)), [scenario.steps]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -725,6 +720,9 @@ function CanvasInner() {
       const edge = scenario.edges.find((item) => item.id === edgeId);
       if (!edge) return;
       setSelectedEdgeId(edge.id);
+      const step = (scenario.steps ?? []).find((item) => item.edgeId === edgeId);
+      if (step) selectStep(step.id);
+      else void addStepForEdge(edgeId);
       openConnectionEditor(
         { source: edge.source, target: edge.target, sourceHandle: isControlPlaneEdgeKind(edge.kind) ? "control" : "out", targetHandle: isControlPlaneEdgeKind(edge.kind) ? "control" : "in" },
         "edit",
@@ -733,7 +731,7 @@ function CanvasInner() {
         isControlPlaneEdgeKind(edge.kind) ? "control" : "out"
       );
     },
-    [openConnectionEditor, scenario.edges]
+    [addStepForEdge, openConnectionEditor, scenario.edges, scenario.steps, selectStep]
   );
 
   const onNativeEdgeClick = useCallback<EdgeMouseHandler>(
@@ -1110,9 +1108,9 @@ function CanvasInner() {
         connectionLineType={ConnectionLineType.Bezier}
         connectionLineStyle={{ stroke: "#39c5bb", strokeWidth: 3, filter: "drop-shadow(0 0 10px rgba(57, 197, 187, 0.75))" }}
         connectOnClick
-        connectionRadius={46}
+        connectionRadius={38}
         edgesReconnectable
-        reconnectRadius={28}
+        reconnectRadius={24}
         nodesConnectable
         elementsSelectable
         proOptions={{ hideAttribution: true }}

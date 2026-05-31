@@ -129,8 +129,8 @@ body {
 
 .agentcore-handle {
   z-index: 10 !important;
-  width: 36px !important;
-  height: 36px !important;
+  width: 28px !important;
+  height: 28px !important;
   border: 0 !important;
   background: transparent !important;
   opacity: 1 !important;
@@ -146,11 +146,11 @@ body {
 .agentcore-handle::after {
   content: "";
   position: absolute;
-  inset: 8px;
+  inset: 7px;
   border: 2px solid var(--asset-color, #39c5bb);
   border-radius: 999px;
   background: #080b10;
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--asset-color, #39c5bb) 12%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--asset-color, #39c5bb) 12%, transparent);
   opacity: 1;
   pointer-events: none;
   transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
@@ -161,7 +161,7 @@ body {
 .agentcore-handle-control-ready::before {
   content: "";
   position: absolute;
-  inset: 4px;
+  inset: 3px;
   border: 1px solid color-mix(in srgb, var(--asset-color, #39c5bb) 72%, #ffffff);
   border-radius: 999px;
   opacity: 0.72;
@@ -230,19 +230,19 @@ body {
 }
 
 .agentcore-handle-in {
-  left: -18px !important;
+  left: -14px !important;
   transform: translate(-50%, -50%) !important;
 }
 
 .agentcore-handle-out {
-  right: -18px !important;
+  right: -14px !important;
   transform: translate(50%, -50%) !important;
 }
 
 .agentcore-handle-control {
-  width: 32px !important;
-  height: 32px !important;
-  bottom: -16px !important;
+  width: 24px !important;
+  height: 24px !important;
+  bottom: -12px !important;
   left: 50% !important;
   background: transparent !important;
   box-shadow: none;
@@ -250,10 +250,10 @@ body {
 }
 
 .agentcore-handle-control::after {
-  inset: 8px;
+  inset: 6px;
   border-color: #b892ff;
   background: #080b10;
-  box-shadow: 0 0 0 5px rgba(184, 146, 255, 0.12);
+  box-shadow: 0 0 0 4px rgba(184, 146, 255, 0.12);
 }
 
 .agentcore-handle-control:hover,

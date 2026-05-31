@@ -32,6 +32,14 @@ export function TokenInspector({ token }: { token?: TokenArtifact }) {
         <div className="field-label">Bindings</div>
         <div className="font-mono text-console-muted">actor={token.boundActor ?? "n/a"} subject={token.boundSubject ?? "n/a"} audience={token.downstreamAudience ?? "n/a"}</div>
       </div>
+      <div>
+        <div className="field-label">RFC 8707 Resource</div>
+        <pre className="max-h-20 overflow-auto whitespace-pre-wrap border border-console-line bg-console-rail p-2 font-mono text-[11px] text-console-muted scrollbar-thin">{JSON.stringify(token.resource ?? token.claims?.resource ?? "n/a", null, 2)}</pre>
+      </div>
+      <div>
+        <div className="field-label">RAR authorization_details</div>
+        <pre className="max-h-28 overflow-auto whitespace-pre-wrap border border-console-line bg-console-rail p-2 font-mono text-[11px] text-console-muted scrollbar-thin">{JSON.stringify(token.authorizationDetails ?? token.claims?.authorization_details ?? [], null, 2)}</pre>
+      </div>
       {validation?.errors.length ? <pre className="whitespace-pre-wrap border border-console-red/50 bg-console-red/10 p-2 text-console-red">{validation.errors.join("\n")}</pre> : null}
     </div>
   );

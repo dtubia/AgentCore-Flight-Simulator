@@ -19,10 +19,11 @@ import {
   type OnReconnect,
   useReactFlow
 } from "@xyflow/react";
+import { MousePointerClick, Plus } from "lucide-react";
 import { useMemo, useCallback, useEffect, useState, type CSSProperties, type DragEvent, type MouseEvent as ReactMouseEvent } from "react";
 import type { AuthMode } from "../../../model/auth";
 import { EDGE_LABELS, legalEdgeKinds, type EdgeKind, isLegalEdge, isControlPlaneEdgeKind, type ScenarioEdge } from "../../../model/edges";
-import type { AgentCoreIdentityNode, LocalPolicy, PolicyEngineNode } from "../../../model/nodes";
+import type { AgentCoreIdentityNode, CredentialProvider, LocalPolicy, McpTool, OAuthClientGrant, PolicyEngineNode, ScenarioNode } from "../../../model/nodes";
 import { flowEdgesFromScenario, flowNodesFromScenario, useAppStore } from "../../store";
 import { skeletonNode } from "../Palette/Palette";
 
@@ -67,6 +68,12 @@ interface GatewayPolicyDocument {
 }
 
 interface PolicyDraft {
+  nodeId: string;
+  json: string;
+  error?: string;
+}
+
+interface AssetDraft {
   nodeId: string;
   json: string;
   error?: string;
@@ -119,10 +126,16 @@ function MissionNode({ id, data, isConnectable }: NodeProps) {
   const sourceEndpoint = Boolean(data.sourceEndpoint);
   const targetEndpoint = Boolean(data.targetEndpoint);
   const controlEndpoint = Boolean(data.controlEndpoint);
+  const selectedForEdit = Boolean(data.selectedForEdit);
   const theme = nodeTheme[assetType] ?? { color: "#39c5bb", bg: "rgba(57, 197, 187, 0.10)", label: type };
   const style = { "--asset-color": theme.color, "--asset-bg": theme.bg } as CSSProperties;
   return (
-    <div className="agentcore-node-card relative w-[170px] px-3 py-2 shadow-lg" style={style}>
+    <div
+      data-testid={`asset-node-${id}`}
+      className={`agentcore-node-card relative w-[170px] px-3 py-2 shadow-lg ${selectedForEdit ? "agentcore-node-card-selected" : ""}`}
+      style={style}
+      title="Drag to move. Double click to edit options."
+    >
       <Handle
         id="in"
         type="target"
@@ -151,7 +164,21 @@ function MissionNode({ id, data, isConnectable }: NodeProps) {
         data-handleid="control"
       />
       <div className="agentcore-node-accent" />
-      <div className="truncate text-[12px] font-semibold text-console-text">{title}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 truncate text-[12px] font-semibold text-console-text">{title}</div>
+        <button
+          type="button"
+          className={`agentcore-node-edit-indicator ${selectedForEdit ? "agentcore-node-edit-indicator-active" : ""}`}
+          aria-label="Edit asset options"
+          onClick={(event) => {
+            event.stopPropagation();
+            const onEditAsset = data.onEditAsset as ((nodeId: string) => void) | undefined;
+            onEditAsset?.(id);
+          }}
+        >
+          <MousePointerClick size={13} strokeWidth={2.2} />
+        </button>
+      </div>
       <div className="mt-1 flex items-center justify-between gap-2">
         <div className="truncate font-mono text-[10px] uppercase tracking-[0.08em] text-console-muted">{type}</div>
         <div className="agentcore-node-chip">{theme.label}</div>
@@ -278,6 +305,140 @@ function policiesFromDocument(input: unknown): { mode: "LOG_ONLY" | "ENFORCE"; p
   return { mode: doc.mode, policies };
 }
 
+function editableAssetDocument(node: ScenarioNode): Record<string, unknown> {
+  const { id, type, position, ...editable } = node;
+  return editable as Record<string, unknown>;
+}
+
+function parseObjectJson(json: string): Record<string, unknown> {
+  const parsed = JSON.parse(json) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Asset configuration must be a JSON object.");
+  return parsed as Record<string, unknown>;
+}
+
+function asStringArray(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new Error(`${fieldName} must be an array of strings.`);
+  return value;
+}
+
+function validateTools(value: unknown): McpTool[] {
+  if (!Array.isArray(value)) throw new Error("tools must be an array.");
+  return value.map((tool, index) => {
+    if (!tool || typeof tool !== "object") throw new Error(`tools[${index}] must be an object.`);
+    const item = tool as Partial<McpTool>;
+    if (!item.name || typeof item.name !== "string") throw new Error(`tools[${index}].name is required.`);
+    if (!item.description || typeof item.description !== "string") throw new Error(`tools[${index}].description is required.`);
+    asStringArray(item.requiredScopes, `tools[${index}].requiredScopes`);
+    if (!item.inputSchema || typeof item.inputSchema !== "object" || Array.isArray(item.inputSchema)) throw new Error(`tools[${index}].inputSchema must be an object.`);
+    return item as McpTool;
+  });
+}
+
+function validateProviders(value: unknown): CredentialProvider[] {
+  if (!Array.isArray(value)) throw new Error("credentialProviders must be an array.");
+  return value.map((provider, index) => {
+    if (!provider || typeof provider !== "object") throw new Error(`credentialProviders[${index}] must be an object.`);
+    const item = provider as Partial<CredentialProvider>;
+    if (!item.name || typeof item.name !== "string") throw new Error(`credentialProviders[${index}].name is required.`);
+    if (item.kind !== "oauth2" && item.kind !== "api_key") throw new Error(`credentialProviders[${index}].kind must be oauth2 or api_key.`);
+    if (!item.vendor || typeof item.vendor !== "string") throw new Error(`credentialProviders[${index}].vendor is required.`);
+    if (!item.flow || !["ON_BEHALF_OF_TOKEN_EXCHANGE", "CLIENT_CREDENTIALS", "AUTHORIZATION_CODE", "API_KEY"].includes(item.flow)) {
+      throw new Error(`credentialProviders[${index}].flow is invalid.`);
+    }
+    asStringArray(item.allowedWorkloadIdentities, `credentialProviders[${index}].allowedWorkloadIdentities`);
+    asStringArray(item.scopes, `credentialProviders[${index}].scopes`);
+    return item as CredentialProvider;
+  });
+}
+
+function validateOAuthGrants(value: unknown): OAuthClientGrant[] {
+  if (!Array.isArray(value)) throw new Error("oauthGrants must be an array.");
+  return value.map((grant, index) => {
+    if (!grant || typeof grant !== "object") throw new Error(`oauthGrants[${index}] must be an object.`);
+    const item = grant as Partial<OAuthClientGrant>;
+    if (!item.clientId || typeof item.clientId !== "string") throw new Error(`oauthGrants[${index}].clientId is required.`);
+    asStringArray(item.allowedResources, `oauthGrants[${index}].allowedResources`);
+    asStringArray(item.allowedScopes, `oauthGrants[${index}].allowedScopes`);
+    if (typeof item.allowTokenExchange !== "boolean") throw new Error(`oauthGrants[${index}].allowTokenExchange must be boolean.`);
+    return item as OAuthClientGrant;
+  });
+}
+
+function validateEditableAsset(node: ScenarioNode, document: Record<string, unknown>): Partial<ScenarioNode> {
+  if ("id" in document || "type" in document || "position" in document) throw new Error("id, type and position are managed by the topology and cannot be edited here.");
+  if ("displayName" in document && typeof document.displayName !== "string") throw new Error("displayName must be a string.");
+  if ((node.type === "agentcore_mcp_server" || node.type === "external_mcp_server") && "tools" in document) validateTools(document.tools);
+  if (node.type === "agentcore_identity" && "credentialProviders" in document) validateProviders(document.credentialProviders);
+  if ((node.type === "client_app" || node.type === "external_genai_agent") && "oauthGrants" in document) validateOAuthGrants(document.oauthGrants);
+  if (node.type === "client_app" && "allowedScopes" in document) asStringArray(document.allowedScopes, "allowedScopes");
+  if (node.type === "external_genai_agent" && "supportedProtocols" in document) asStringArray(document.supportedProtocols, "supportedProtocols");
+  if (node.type === "authorization_server") {
+    if ("issuer" in document && typeof document.issuer !== "string") throw new Error("issuer must be a string.");
+    if ("supportedGrantTypes" in document) asStringArray(document.supportedGrantTypes, "supportedGrantTypes");
+    if ("tokenLifetimeSeconds" in document && typeof document.tokenLifetimeSeconds !== "number") throw new Error("tokenLifetimeSeconds must be a number.");
+  }
+  if (node.type === "agentcore_gateway" && "semanticSearchEnabled" in document && typeof document.semanticSearchEnabled !== "boolean") throw new Error("semanticSearchEnabled must be boolean.");
+  if (node.type === "agentcore_mcp_server" && "requiresMcpSessionId" in document && typeof document.requiresMcpSessionId !== "boolean") throw new Error("requiresMcpSessionId must be boolean.");
+  return document as Partial<ScenarioNode>;
+}
+
+function sampleToolFor(node: ScenarioNode): McpTool {
+  const prefix = node.type === "external_mcp_server" ? node.vendor.toLowerCase() : "custom";
+  return {
+    name: `${prefix}.new_tool`,
+    description: "Describe the tool behavior and access boundary",
+    requiredScopes: [`${prefix}.read`],
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" }
+      },
+      required: ["query"]
+    }
+  };
+}
+
+function sampleProviderFor(identity: AgentCoreIdentityNode): CredentialProvider {
+  return {
+    name: `keycloak-provider-${identity.credentialProviders.length + 1}`,
+    kind: "oauth2",
+    vendor: "Keycloak",
+    flow: "ON_BEHALF_OF_TOKEN_EXCHANGE",
+    authorizationServerId: "idp-keycloak",
+    issuer: "https://keycloak.example.local/realms/agentcore",
+    tokenEndpoint: "https://keycloak.example.local/realms/agentcore/protocol/openid-connect/token",
+    allowedWorkloadIdentities: ["travel-expense-agent"],
+    allowedClients: ["agent-portal-spa"],
+    allowedResources: ["agentcore-gateway:enterprise-tools"],
+    allowTokenExchange: true,
+    allowSubjectDelegation: true,
+    tokenExchange: {
+      grantType: "TOKEN_EXCHANGE",
+      actorTokenContent: "M2M",
+      actorTokenScopes: ["agent.act"]
+    },
+    scopes: ["mcp.tools.call"]
+  };
+}
+
+function sampleGrantFor(node: ScenarioNode): OAuthClientGrant {
+  const clientId = node.type === "client_app" ? node.clientId : node.type === "external_genai_agent" ? node.oauthClientId ?? node.id : node.id;
+  return {
+    clientId,
+    allowedResources: ["agentcore-runtime:travel-expense-agent"],
+    allowedScopes: ["openid", "profile", "agent.invoke"],
+    allowTokenExchange: true,
+    allowActAsSubject: true,
+    allowActAsActor: true
+  };
+}
+
+function appendAssetArrayItem(json: string, key: "tools" | "credentialProviders" | "oauthGrants", item: unknown): string {
+  const document = parseObjectJson(json);
+  const current = Array.isArray(document[key]) ? document[key] : [];
+  return JSON.stringify({ ...document, [key]: [...current, item] }, null, 2);
+}
+
 function invalidReasonFor(kind: EdgeKind, sourceType?: string, targetType?: string): string | undefined {
   if (!sourceType || !targetType) return "Invalid topology: missing source or target node.";
   if (isLegalEdge(kind, sourceType, targetType)) return undefined;
@@ -362,7 +523,7 @@ function EdgeOverlay({
           const color = edge.invalid ? "#ff4d4d" : active ? "#ffffff" : edge.authMode === "AWS_IAM_SIGV4" ? "#f4b454" : isProviderEdge(edge.kind) || isAuthorizationServerIntegration(edge.kind) ? "#b892ff" : edge.kind.includes("direct") ? "#ff6b6b" : "#39c5bb";
           return (
             <g key={edge.id}>
-              <path data-edgeid={edge.id} d={path} fill="none" stroke="transparent" strokeWidth={20} style={{ pointerEvents: interactionsDisabled ? "none" : "stroke", cursor: "pointer" }} onClick={(event) => { event.stopPropagation(); onEditEdge(edge.id, event); }} />
+              <path data-edgeid={edge.id} d={path} fill="none" stroke="transparent" strokeWidth={20} style={{ pointerEvents: interactionsDisabled ? "none" : "stroke", cursor: "default" }} onClick={(event) => { event.stopPropagation(); onEditEdge(edge.id, event); }} />
               {planned && !active ? <path d={path} fill="none" stroke="rgba(122,168,255,0.24)" strokeWidth={8} opacity={0.9} style={{ pointerEvents: "none", filter: "drop-shadow(0 0 8px rgba(122,168,255,0.28))" }} /> : null}
               {active ? <path d={path} fill="none" stroke="rgba(255,255,255,0.24)" strokeWidth={10} opacity={0.9} style={{ pointerEvents: "none", filter: "drop-shadow(0 0 10px rgba(255,255,255,0.35))" }} /> : null}
               <path d={path} fill="none" stroke={color} strokeWidth={edge.invalid ? 3 : active || planned ? 3 : 2} strokeDasharray={edge.invalid || edge.kind.includes("direct") ? "7 5" : undefined} opacity={active || planned ? 1 : 0.92} style={{ pointerEvents: "none" }} />
@@ -631,6 +792,87 @@ function PolicyEditor({
   );
 }
 
+function AssetEditor({
+  draft,
+  node,
+  onCancel,
+  onChange,
+  onAppendTool,
+  onAppendProvider,
+  onAppendGrant,
+  onSave
+}: {
+  draft: AssetDraft;
+  node: ScenarioNode;
+  onCancel: () => void;
+  onChange: (json: string) => void;
+  onAppendTool: () => void;
+  onAppendProvider: () => void;
+  onAppendGrant: () => void;
+  onSave: () => void;
+}) {
+  const canEditTools = node.type === "agentcore_mcp_server" || node.type === "external_mcp_server";
+  const canEditProviders = node.type === "agentcore_identity";
+  const canEditGrants = node.type === "client_app" || node.type === "external_genai_agent";
+  const helper =
+    node.type === "agentcore_mcp_server" || node.type === "external_mcp_server"
+      ? "Define the MCP tools exposed by this server: names, schemas, required scopes and sensitivity."
+      : node.type === "agentcore_identity"
+        ? "Define Keycloak-backed credential providers, OBO/token-exchange behavior, allowed workloads, resources and scopes."
+        : node.type === "client_app" || node.type === "external_genai_agent"
+          ? "Define OAuth client grants: RFC 8707 resources, coarse scopes and token-exchange/OBO capability."
+          : node.type === "agentcore_runtime_agent"
+            ? "Define protocol, inbound auth, workload identity and runtime session details."
+            : node.type === "agentcore_gateway"
+              ? "Define gateway URL, inbound auth, target auth and policy/search settings."
+              : "Edit the useful configuration fields for this asset. Topology identity and position are managed by the canvas.";
+  return (
+    <div data-testid="asset-editor" className="absolute left-1/2 top-8 z-30 flex max-h-[82%] w-[680px] -translate-x-1/2 flex-col border border-console-cyan/60 bg-console-panel shadow-2xl">
+      <div className="flex items-center justify-between border-b border-console-line px-3 py-2 text-[11px] uppercase tracking-[0.08em] text-console-muted">
+        <span className="font-semibold">Asset Configuration</span>
+        <span className="font-mono">{node.id}</span>
+      </div>
+      <div className="space-y-3 p-3 text-xs">
+        <div className="grid grid-cols-[1fr_auto] gap-3">
+          <div className="border border-console-line bg-console-rail p-2 text-[11px] text-console-muted">
+            <div className="mb-1 font-mono text-console-text">{node.type}</div>
+            {helper}
+          </div>
+          <div className="flex flex-col gap-2">
+            {canEditTools ? (
+              <button data-testid="asset-add-tool" className="flex items-center justify-center gap-1 border border-console-green/70 bg-console-green/10 px-3 py-2 text-console-green hover:bg-console-green/20" onClick={onAppendTool}>
+                <Plus size={13} /> Tool
+              </button>
+            ) : null}
+            {canEditProviders ? (
+              <button data-testid="asset-add-provider" className="flex items-center justify-center gap-1 border border-console-blue/70 bg-console-blue/10 px-3 py-2 text-console-blue hover:bg-console-blue/20" onClick={onAppendProvider}>
+                <Plus size={13} /> Provider
+              </button>
+            ) : null}
+            {canEditGrants ? (
+              <button data-testid="asset-add-grant" className="flex items-center justify-center gap-1 border border-console-amber/70 bg-console-amber/10 px-3 py-2 text-console-amber hover:bg-console-amber/20" onClick={onAppendGrant}>
+                <Plus size={13} /> Grant
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <textarea
+          data-testid="asset-json-editor"
+          className="h-[390px] w-full resize-none border border-console-line bg-console-bg p-3 font-mono text-[11px] leading-5 text-console-text outline-none focus:border-console-cyan"
+          spellCheck={false}
+          value={draft.json}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        {draft.error ? <div className="border border-console-red/60 bg-console-red/10 p-2 text-console-red">{draft.error}</div> : null}
+        <div className="flex justify-end gap-2">
+          <button data-testid="asset-cancel" className="border border-console-line bg-console-panel2 px-3 py-2 text-console-muted hover:border-console-cyan" onClick={onCancel}>Cancel</button>
+          <button data-testid="asset-apply" className="bg-console-cyan px-3 py-2 font-semibold text-console-bg hover:bg-console-green" onClick={onSave}>Apply Asset</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CanvasInner() {
   const { scenario, result, selectedEventId, selectedStepId, updateNodes, addNode, updateNode, addEdge, updateEdge, deleteEdge, selectStep, addStepForEdge } = useAppStore();
   const { screenToFlowPosition, fitView } = useReactFlow();
@@ -641,9 +883,27 @@ function CanvasInner() {
   const [reconnectDraft, setReconnectDraft] = useState<ReconnectDraft | undefined>();
   const [reconnecting, setReconnecting] = useState<{ edgeId: string; handleType: HandleType } | undefined>();
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | undefined>();
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>();
   const [draft, setDraft] = useState<ConnectionDraft | undefined>();
   const [policyDraft, setPolicyDraft] = useState<PolicyDraft | undefined>();
+  const [assetDraft, setAssetDraft] = useState<AssetDraft | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
+  const openEditableNode = useCallback(
+    (nodeId: string) => {
+      const asset = scenario.nodes.find((item) => item.id === nodeId);
+      if (!asset) return;
+      setSelectedNodeId(asset.id);
+      setSelectedEdgeId(undefined);
+      if (asset.type === "policy_engine") {
+        setAssetDraft(undefined);
+        setPolicyDraft({ nodeId: asset.id, json: JSON.stringify(policyDocumentFromNode(asset as PolicyEngineNode), null, 2) });
+        return;
+      }
+      setPolicyDraft(undefined);
+      setAssetDraft({ nodeId: asset.id, json: JSON.stringify(editableAssetDocument(asset), null, 2) });
+    },
+    [scenario.nodes]
+  );
   const nodes = useMemo(() => {
     const armed = Boolean(pendingSourceNodeId || dragSourceNodeId || reconnecting || reconnectDraft);
     const selectedEdge = selectedEdgeId ? scenario.edges.find((edge) => edge.id === selectedEdgeId) : undefined;
@@ -653,15 +913,17 @@ function CanvasInner() {
       data: {
         ...node.data,
         activeOut: !selectedControlEdge && ((node.id === pendingSourceNodeId && pendingSourceHandle === "out") || (dragSourceNodeId === node.id && dragPreview?.sourceHandle === "out") || ((!reconnectDraft || !isControlPlaneEdgeKind(reconnectDraft.edgeKind)) && reconnectDraft?.end === "source" && node.id === reconnectDraft.movingNodeId)),
+        onEditAsset: openEditableNode,
         controlArmed: (node.id === pendingSourceNodeId && pendingSourceHandle === "control") || (dragSourceNodeId === node.id && dragPreview?.sourceHandle === "control") || (reconnectDraft && isControlPlaneEdgeKind(reconnectDraft.edgeKind) && reconnectDraft.movingNodeId === node.id),
         suggestedTarget: node.id === dragPreview?.targetId || node.id === reconnectDraft?.movingNodeId,
+        selectedForEdit: node.id === selectedNodeId,
         connectionArmed: armed && node.id !== pendingSourceNodeId && node.id !== dragSourceNodeId,
         sourceEndpoint: !selectedControlEdge && selectedEdge?.source === node.id,
         targetEndpoint: !selectedControlEdge && selectedEdge?.target === node.id,
         controlEndpoint: selectedControlEdge && (selectedEdge?.source === node.id || selectedEdge?.target === node.id)
       }
     }));
-  }, [dragPreview?.sourceHandle, dragPreview?.targetId, dragSourceNodeId, pendingSourceHandle, pendingSourceNodeId, reconnectDraft, reconnecting, scenario, selectedEdgeId]);
+  }, [dragPreview?.sourceHandle, dragPreview?.targetId, dragSourceNodeId, openEditableNode, pendingSourceHandle, pendingSourceNodeId, reconnectDraft, reconnecting, scenario, selectedEdgeId, selectedNodeId]);
   const edges = useMemo(() => flowEdgesFromScenario(scenario), [scenario]);
   const activePathEdgeIds = useMemo(() => {
     const selectedStep = (result?.steps ?? scenario.steps ?? []).find((step) => step.id === selectedStepId);
@@ -720,6 +982,7 @@ function CanvasInner() {
       const edge = scenario.edges.find((item) => item.id === edgeId);
       if (!edge) return;
       setSelectedEdgeId(edge.id);
+      setSelectedNodeId(undefined);
       const step = (scenario.steps ?? []).find((item) => item.edgeId === edgeId);
       if (step) selectStep(step.id);
       else void addStepForEdge(edgeId);
@@ -873,13 +1136,16 @@ function CanvasInner() {
     setDragPreview(undefined);
   }, []);
 
-  const openPolicyEditor = useCallback<NodeMouseHandler>(
+  const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => {
+    setSelectedNodeId(node.id);
+    setSelectedEdgeId(undefined);
+  }, []);
+
+  const openNodeEditor = useCallback<NodeMouseHandler>(
     (_event, node) => {
-      const policyEngine = scenario.nodes.find((item) => item.id === node.id && item.type === "policy_engine") as PolicyEngineNode | undefined;
-      if (!policyEngine) return;
-      setPolicyDraft({ nodeId: policyEngine.id, json: JSON.stringify(policyDocumentFromNode(policyEngine), null, 2) });
+      openEditableNode(node.id);
     },
-    [scenario.nodes]
+    [openEditableNode]
   );
 
   const savePolicyDraft = useCallback(() => {
@@ -893,6 +1159,53 @@ function CanvasInner() {
       setPolicyDraft({ ...policyDraft, error: error instanceof Error ? error.message : "Invalid policy document." });
     }
   }, [policyDraft, updateNode]);
+
+  const saveAssetDraft = useCallback(() => {
+    if (!assetDraft) return;
+    const node = scenario.nodes.find((item) => item.id === assetDraft.nodeId);
+    if (!node) return;
+    try {
+      const parsed = parseObjectJson(assetDraft.json);
+      const patch = validateEditableAsset(node, parsed);
+      void updateNode(assetDraft.nodeId, patch);
+      setAssetDraft(undefined);
+    } catch (error) {
+      setAssetDraft({ ...assetDraft, error: error instanceof Error ? error.message : "Invalid asset document." });
+    }
+  }, [assetDraft, scenario.nodes, updateNode]);
+
+  const appendAssetTool = useCallback(() => {
+    if (!assetDraft) return;
+    const node = scenario.nodes.find((item) => item.id === assetDraft.nodeId);
+    if (!node) return;
+    try {
+      setAssetDraft({ ...assetDraft, json: appendAssetArrayItem(assetDraft.json, "tools", sampleToolFor(node)), error: undefined });
+    } catch (error) {
+      setAssetDraft({ ...assetDraft, error: error instanceof Error ? error.message : "Invalid asset document." });
+    }
+  }, [assetDraft, scenario.nodes]);
+
+  const appendAssetProvider = useCallback(() => {
+    if (!assetDraft) return;
+    const node = scenario.nodes.find((item) => item.id === assetDraft.nodeId);
+    if (!node || node.type !== "agentcore_identity") return;
+    try {
+      setAssetDraft({ ...assetDraft, json: appendAssetArrayItem(assetDraft.json, "credentialProviders", sampleProviderFor(node as AgentCoreIdentityNode)), error: undefined });
+    } catch (error) {
+      setAssetDraft({ ...assetDraft, error: error instanceof Error ? error.message : "Invalid asset document." });
+    }
+  }, [assetDraft, scenario.nodes]);
+
+  const appendAssetGrant = useCallback(() => {
+    if (!assetDraft) return;
+    const node = scenario.nodes.find((item) => item.id === assetDraft.nodeId);
+    if (!node) return;
+    try {
+      setAssetDraft({ ...assetDraft, json: appendAssetArrayItem(assetDraft.json, "oauthGrants", sampleGrantFor(node)), error: undefined });
+    } catch (error) {
+      setAssetDraft({ ...assetDraft, error: error instanceof Error ? error.message : "Invalid asset document." });
+    }
+  }, [assetDraft, scenario.nodes]);
 
   const onCanvasClickCapture = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1100,7 +1413,8 @@ function CanvasInner() {
         onReconnect={onReconnect}
         onReconnectStart={onReconnectStart}
         onReconnectEnd={onReconnectEnd}
-        onNodeDoubleClick={openPolicyEditor}
+        onNodeClick={onNodeClick}
+        onNodeDoubleClick={openNodeEditor}
         fitView
         minZoom={0.25}
         fitViewOptions={{ padding: 0.16 }}
@@ -1124,6 +1438,18 @@ function CanvasInner() {
       {notice ? <div className="absolute left-3 top-12 z-20 border border-console-red/60 bg-console-panel px-3 py-2 text-xs text-console-red shadow-xl">{notice}</div> : null}
       {draft ? <ConnectionEditor draft={draft} scenario={scenario} onCancel={cancelDraft} onChange={setDraft} onDelete={deleteDraft} onSave={saveDraft} /> : null}
       {policyDraft ? <PolicyEditor draft={policyDraft} onCancel={() => setPolicyDraft(undefined)} onChange={(json) => setPolicyDraft({ nodeId: policyDraft.nodeId, json })} onSave={savePolicyDraft} /> : null}
+      {assetDraft ? (
+        <AssetEditor
+          draft={assetDraft}
+          node={scenario.nodes.find((node) => node.id === assetDraft.nodeId)!}
+          onCancel={() => setAssetDraft(undefined)}
+          onChange={(json) => setAssetDraft({ nodeId: assetDraft.nodeId, json })}
+          onAppendTool={appendAssetTool}
+          onAppendProvider={appendAssetProvider}
+          onAppendGrant={appendAssetGrant}
+          onSave={saveAssetDraft}
+        />
+      ) : null}
     </div>
   );
 }

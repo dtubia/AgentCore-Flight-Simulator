@@ -134,7 +134,16 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     updateNodes(changes) {
       const scenario = cloneScenario(get().scenario);
-      const flowNodes: FlowNode[] = scenario.nodes.map((node) => ({ id: node.id, position: node.position ?? { x: 0, y: 0 }, data: { label: node.displayName ?? node.id } }));
+      const flowNodes: FlowNode[] = scenario.nodes.map((node) => ({
+        id: node.id,
+        position: node.position ?? { x: 0, y: 0 },
+        data: { label: node.displayName ?? node.id },
+        width: 170,
+        height: 62,
+        initialWidth: 170,
+        initialHeight: 62,
+        measured: { width: 170, height: 62 }
+      }));
       const updated = applyNodeChanges(changes, flowNodes);
       scenario.nodes = scenario.nodes.map((node) => {
         const flowNode = updated.find((item) => item.id === node.id);
@@ -321,14 +330,16 @@ export function flowEdgesFromScenario(scenario: Scenario): FlowEdge[] {
 
 export function flowNodesFromScenario(scenario: Scenario): FlowNode[] {
   const nodeWidth = 170;
+  const nodeHeight = 62;
   return scenario.nodes.map((node) => ({
     id: node.id,
     type: "mission",
     position: node.position ?? { x: 0, y: 0 },
     data: { label: `${node.displayName ?? node.id}\n${node.type}`, assetType: node.type },
     width: nodeWidth,
-    height: 62,
+    height: nodeHeight,
     initialWidth: nodeWidth,
-    initialHeight: 62
+    initialHeight: nodeHeight,
+    measured: { width: nodeWidth, height: nodeHeight }
   }));
 }

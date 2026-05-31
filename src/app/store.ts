@@ -7,11 +7,13 @@ import type { SimulationResult } from "../model/schema";
 import { scenarioSchema } from "../model/schema";
 import { isControlPlaneEdgeKind } from "../model/edges";
 import { simulateScenario } from "../engine/simulate";
+import type { ScenarioStep } from "../model/steps";
+import { buildMagicSteps, normalizeScenarioSteps, renumberSteps, stepFromEdge } from "../model/steps";
 
 const STORAGE_KEY = "agentcore-flight-simulator-scenario-v1";
 
 function cloneScenario(scenario: Scenario): Scenario {
-  return JSON.parse(JSON.stringify(scenario)) as Scenario;
+  return normalizeScenarioSteps(JSON.parse(JSON.stringify(scenario)) as Scenario);
 }
 
 function initialScenario(): Scenario {
@@ -28,7 +30,7 @@ function initialScenario(): Scenario {
         localStorage.removeItem(STORAGE_KEY);
         return cloneScenario(scenarios[0]);
       }
-      return parsed as Scenario;
+      return normalizeScenarioSteps(parsed as Scenario);
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -41,12 +43,14 @@ export interface AppState {
   result?: SimulationResult;
   runError?: string;
   selectedEventId?: string;
+  selectedStepId?: string;
   userPrompt: string;
   scenarioJsonDraft: string;
   scenarioJsonError?: string;
   loadScenario: (scenarioId: string) => Promise<void>;
   run: () => Promise<void>;
   selectEvent: (eventId: string) => void;
+  selectStep: (stepId: string) => void;
   setUserPrompt: (prompt: string) => void;
   toggleMutation: (id: string) => Promise<void>;
   setScenario: (scenario: Scenario) => Promise<void>;
@@ -56,6 +60,13 @@ export interface AppState {
   addEdge: (edge: Scenario["edges"][number]) => Promise<void>;
   updateEdge: (edgeId: string, patch: Partial<Scenario["edges"][number]>) => Promise<void>;
   deleteEdge: (edgeId: string) => Promise<void>;
+  addStepForEdge: (edgeId: string) => Promise<void>;
+  updateStep: (stepId: string, patch: Partial<ScenarioStep>) => Promise<void>;
+  removeStep: (stepId: string) => Promise<void>;
+  duplicateStep: (stepId: string) => Promise<void>;
+  moveStep: (stepId: string, direction: -1 | 1) => Promise<void>;
+  reorderStep: (stepId: string, toIndex: number) => Promise<void>;
+  magicPath: () => Promise<void>;
   setSelectedPath: (edgeIds: string[]) => Promise<void>;
   addPathEdge: (edgeId: string) => Promise<void>;
   removePathEdge: (edgeId: string) => Promise<void>;
@@ -74,21 +85,37 @@ export const useAppStore = create<AppState>((set, get) => {
     async loadScenario(scenarioId) {
       const selected = cloneScenario(scenarios.find((item) => item.id === scenarioId) ?? scenarios[0]);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
-      set({ scenario: selected, userPrompt: selected.initialUserPrompt, scenarioJsonDraft: JSON.stringify(selected, null, 2), scenarioJsonError: undefined, selectedEventId: undefined });
+      set({ scenario: selected, userPrompt: selected.initialUserPrompt, scenarioJsonDraft: JSON.stringify(selected, null, 2), scenarioJsonError: undefined, selectedEventId: undefined, selectedStepId: selected.steps?.[0]?.id });
       await get().run();
     },
     async run() {
-      const { scenario, userPrompt } = get();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
+      const { scenario, userPrompt, selectedStepId } = get();
+      const normalized = normalizeScenarioSteps(scenario);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
       try {
-        const result = await simulateScenario({ scenario, selectedPath: scenario.selectedPath, userPrompt, mutations: scenario.mutations });
-        set({ result, runError: undefined, selectedEventId: result.events[0]?.id, scenarioJsonDraft: JSON.stringify(scenario, null, 2), scenarioJsonError: undefined });
+        const result = await simulateScenario({ scenario: normalized, steps: normalized.steps, userPrompt, mutations: normalized.mutations });
+        const nextScenario = { ...normalized, steps: result.steps };
+        const selectedEvent = selectedStepId ? result.events.find((event) => event.stepId === selectedStepId) : undefined;
+        set({
+          scenario: nextScenario,
+          result,
+          runError: undefined,
+          selectedEventId: selectedEvent?.id ?? result.events[0]?.id,
+          selectedStepId: selectedStepId ?? result.steps[0]?.id,
+          scenarioJsonDraft: JSON.stringify(nextScenario, null, 2),
+          scenarioJsonError: undefined
+        });
       } catch (error) {
         set({ runError: error instanceof Error ? error.message : "Simulation failed." });
       }
     },
     selectEvent(eventId) {
-      set({ selectedEventId: eventId });
+      const event = get().result?.events.find((item) => item.id === eventId);
+      set({ selectedEventId: eventId, selectedStepId: event?.stepId ?? get().selectedStepId });
+    },
+    selectStep(stepId) {
+      const event = get().result?.events.find((item) => item.stepId === stepId);
+      set({ selectedStepId: stepId, selectedEventId: event?.id ?? get().selectedEventId });
     },
     setUserPrompt(prompt) {
       set({ userPrompt: prompt });
@@ -100,12 +127,10 @@ export const useAppStore = create<AppState>((set, get) => {
       await get().run();
     },
     async setScenario(scenario) {
-      const validEdgeIds = new Set(scenario.edges.map((edge) => edge.id));
-      if (scenario.selectedPath?.length) {
-        scenario.selectedPath = scenario.selectedPath.filter((edgeId, index, list) => validEdgeIds.has(edgeId) && list.indexOf(edgeId) === index);
-      }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(scenario));
-      set({ scenario, scenarioJsonDraft: JSON.stringify(scenario, null, 2), scenarioJsonError: undefined });
+      const normalized = normalizeScenarioSteps(scenario);
+      delete normalized.selectedPath;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      set({ scenario: normalized, scenarioJsonDraft: JSON.stringify(normalized, null, 2), scenarioJsonError: undefined });
     },
     updateNodes(changes) {
       const scenario = cloneScenario(get().scenario);
@@ -132,20 +157,86 @@ export const useAppStore = create<AppState>((set, get) => {
     async addEdge(edge) {
       const scenario = cloneScenario(get().scenario);
       scenario.edges.push(edge);
+      scenario.steps = renumberSteps([...(scenario.steps ?? []), stepFromEdge(edge, (scenario.steps?.length ?? 0) + 1, scenario.nodes)]);
       await get().setScenario(scenario);
       await get().run();
     },
     async updateEdge(edgeId, patch) {
       const scenario = cloneScenario(get().scenario);
       scenario.edges = scenario.edges.map((edge) => (edge.id === edgeId ? { ...edge, ...patch } : edge));
+      const edge = scenario.edges.find((item) => item.id === edgeId);
+      if (edge) {
+        scenario.steps = (scenario.steps ?? []).map((step) => {
+          if (step.edgeId !== edgeId) return step;
+          const inferred = stepFromEdge(edge, step.order, scenario.nodes);
+          return { ...inferred, ...step, sourceNodeId: edge.source, targetNodeId: edge.target };
+        });
+      }
       await get().setScenario(scenario);
       await get().run();
     },
     async deleteEdge(edgeId) {
       const scenario = cloneScenario(get().scenario);
       scenario.edges = scenario.edges.filter((edge) => edge.id !== edgeId);
-      scenario.selectedPath = scenario.selectedPath?.filter((id) => id !== edgeId);
-      if (!scenario.selectedPath?.length) delete scenario.selectedPath;
+      scenario.steps = renumberSteps((scenario.steps ?? []).filter((step) => step.edgeId !== edgeId));
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async addStepForEdge(edgeId) {
+      const scenario = cloneScenario(get().scenario);
+      const edge = scenario.edges.find((item) => item.id === edgeId);
+      if (!edge) return;
+      const id = `step-${edge.id}-${Date.now().toString(36)}`;
+      scenario.steps = renumberSteps([...(scenario.steps ?? []), { ...stepFromEdge(edge, (scenario.steps?.length ?? 0) + 1, scenario.nodes), id }]);
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async updateStep(stepId, patch) {
+      const scenario = cloneScenario(get().scenario);
+      scenario.steps = (scenario.steps ?? []).map((step) => (step.id === stepId ? { ...step, ...patch } : step));
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async removeStep(stepId) {
+      const scenario = cloneScenario(get().scenario);
+      scenario.steps = renumberSteps((scenario.steps ?? []).filter((step) => step.id !== stepId));
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async duplicateStep(stepId) {
+      const scenario = cloneScenario(get().scenario);
+      const index = (scenario.steps ?? []).findIndex((step) => step.id === stepId);
+      if (index < 0) return;
+      const duplicate = { ...scenario.steps![index], id: `${scenario.steps![index].id}-copy-${Date.now().toString(36)}`, status: "idle" as const };
+      scenario.steps = renumberSteps([...scenario.steps!.slice(0, index + 1), duplicate, ...scenario.steps!.slice(index + 1)]);
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async moveStep(stepId, direction) {
+      const scenario = cloneScenario(get().scenario);
+      const steps = [...(scenario.steps ?? [])].sort((a, b) => a.order - b.order);
+      const index = steps.findIndex((step) => step.id === stepId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= steps.length) return;
+      [steps[index], steps[nextIndex]] = [steps[nextIndex], steps[index]];
+      scenario.steps = renumberSteps(steps);
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async reorderStep(stepId, toIndex) {
+      const scenario = cloneScenario(get().scenario);
+      const steps = [...(scenario.steps ?? [])].sort((a, b) => a.order - b.order);
+      const fromIndex = steps.findIndex((step) => step.id === stepId);
+      if (fromIndex < 0 || toIndex < 0 || toIndex >= steps.length || fromIndex === toIndex) return;
+      const [moved] = steps.splice(fromIndex, 1);
+      steps.splice(toIndex, 0, moved);
+      scenario.steps = renumberSteps(steps);
+      await get().setScenario(scenario);
+      await get().run();
+    },
+    async magicPath() {
+      const scenario = cloneScenario(get().scenario);
+      scenario.steps = buildMagicSteps(scenario.edges, scenario.nodes);
       await get().setScenario(scenario);
       await get().run();
     },
@@ -153,34 +244,32 @@ export const useAppStore = create<AppState>((set, get) => {
       const scenario = cloneScenario(get().scenario);
       const validEdgeIds = new Set(scenario.edges.map((edge) => edge.id));
       const next = edgeIds.filter((edgeId, index, list) => validEdgeIds.has(edgeId) && list.indexOf(edgeId) === index);
-      if (next.length) scenario.selectedPath = next;
-      else delete scenario.selectedPath;
+      scenario.steps = next.map((edgeId, index) => stepFromEdge(scenario.edges.find((edge) => edge.id === edgeId)!, index + 1, scenario.nodes));
       await get().setScenario(scenario);
       await get().run();
     },
     async addPathEdge(edgeId) {
       const scenario = cloneScenario(get().scenario);
       if (!scenario.edges.some((edge) => edge.id === edgeId)) return;
-      const current = scenario.selectedPath ?? [];
-      if (!current.includes(edgeId)) scenario.selectedPath = [...current, edgeId];
+      const edge = scenario.edges.find((item) => item.id === edgeId)!;
+      scenario.steps = renumberSteps([...(scenario.steps ?? []), stepFromEdge(edge, (scenario.steps?.length ?? 0) + 1, scenario.nodes)]);
       await get().setScenario(scenario);
       await get().run();
     },
     async removePathEdge(edgeId) {
       const scenario = cloneScenario(get().scenario);
-      scenario.selectedPath = (scenario.selectedPath ?? []).filter((id) => id !== edgeId);
-      if (!scenario.selectedPath.length) delete scenario.selectedPath;
+      scenario.steps = renumberSteps((scenario.steps ?? []).filter((step) => step.edgeId !== edgeId));
       await get().setScenario(scenario);
       await get().run();
     },
     async movePathEdge(edgeId, direction) {
       const scenario = cloneScenario(get().scenario);
-      const current = [...(scenario.selectedPath ?? [])];
-      const index = current.indexOf(edgeId);
+      const current = [...(scenario.steps ?? [])].sort((a, b) => a.order - b.order);
+      const index = current.findIndex((step) => step.edgeId === edgeId);
       const nextIndex = index + direction;
       if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return;
       [current[index], current[nextIndex]] = [current[nextIndex], current[index]];
-      scenario.selectedPath = current;
+      scenario.steps = renumberSteps(current);
       await get().setScenario(scenario);
       await get().run();
     },

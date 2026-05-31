@@ -49,8 +49,8 @@
       ],
       "tokenLifetimeSeconds": 3600,
       "position": {
-        "x": 580,
-        "y": 60
+        "x": 300,
+        "y": 250
       }
     },
     {
@@ -327,5 +327,267 @@
   "expectedLearningOutcomes": [
     "Direct MCP can succeed but loses central policy and credential mediation.",
     "Gateway-mediated MCP adds policy, audit and Identity-based outbound credentials."
+  ],
+  "steps": [
+    {
+      "id": "step-e-user-client",
+      "edgeId": "e-user-client",
+      "sourceNodeId": "user-alice",
+      "targetNodeId": "client-portal",
+      "actionKind": "user_open_client",
+      "authStrategy": "none",
+      "resource": "client-portal",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "client-portal"
+          ]
+        }
+      ],
+      "status": "idle",
+      "order": 1,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-client-idp",
+      "edgeId": "e-client-idp",
+      "sourceNodeId": "client-portal",
+      "targetNodeId": "idp-keycloak",
+      "actionKind": "oauth_authorization_code_pkce",
+      "authStrategy": "oauth_authorization_code_pkce",
+      "resource": "https://keycloak.example.local/realms/agentcore-lab",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "https://keycloak.example.local/realms/agentcore-lab"
+          ]
+        }
+      ],
+      "scopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "status": "idle",
+      "order": 2,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-client-runtime",
+      "edgeId": "e-client-runtime",
+      "sourceNodeId": "client-portal",
+      "targetNodeId": "agent-travel",
+      "actionKind": "runtime_invoke",
+      "authStrategy": "oauth_bearer",
+      "resource": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "authorizationDetails": [
+        {
+          "type": "agentcore_runtime",
+          "locations": [
+            "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456"
+          ],
+          "actions": [
+            "agent.invoke"
+          ]
+        }
+      ],
+      "scopes": [
+        "agent.invoke"
+      ],
+      "status": "idle",
+      "order": 3,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-runtime-identity",
+      "edgeId": "e-runtime-identity",
+      "sourceNodeId": "agent-travel",
+      "targetNodeId": "identity-default",
+      "actionKind": "workload_identity_token",
+      "authStrategy": "none",
+      "resource": "identity-default",
+      "authorizationDetails": [
+        {
+          "type": "agentcore_runtime",
+          "locations": [
+            "identity-default"
+          ],
+          "actions": [
+            "agent.invoke"
+          ]
+        }
+      ],
+      "scopes": [
+        "agent.invoke"
+      ],
+      "status": "idle",
+      "order": 4,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-direct-slack",
+      "edgeId": "e-direct-slack",
+      "sourceNodeId": "agent-travel",
+      "targetNodeId": "external-slack",
+      "actionKind": "direct_mcp_call",
+      "authStrategy": "none",
+      "resource": "https://mcp.slack-adapter.example.local/mcp",
+      "authorizationDetails": [
+        {
+          "type": "mcp",
+          "locations": [
+            "https://mcp.slack-adapter.example.local/mcp"
+          ],
+          "actions": [
+            "tools/list",
+            "tools/call"
+          ]
+        }
+      ],
+      "scopes": [
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ],
+      "toolName": "slack.search_messages",
+      "status": "idle",
+      "order": 5,
+      "branchId": "direct",
+      "stopOnFailure": false
+    },
+    {
+      "id": "step-e-runtime-gateway",
+      "edgeId": "e-runtime-gateway",
+      "sourceNodeId": "agent-travel",
+      "targetNodeId": "gateway-enterprise-tools",
+      "actionKind": "gateway_tools_list_call",
+      "authStrategy": "oauth_bearer",
+      "resource": "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/slack-tools-abcdefghij",
+      "authorizationDetails": [
+        {
+          "type": "mcp",
+          "locations": [
+            "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/slack-tools-abcdefghij"
+          ],
+          "actions": [
+            "tools/list",
+            "tools/call"
+          ]
+        }
+      ],
+      "scopes": [
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ],
+      "status": "idle",
+      "order": 6,
+      "branchId": "gateway",
+      "stopOnFailure": false
+    },
+    {
+      "id": "step-e-gateway-policy",
+      "edgeId": "e-gateway-policy",
+      "sourceNodeId": "gateway-enterprise-tools",
+      "targetNodeId": "policy-engine-enterprise",
+      "actionKind": "gateway_policy_evaluation",
+      "authStrategy": "policy",
+      "resource": "policy-engine-enterprise",
+      "authorizationDetails": [
+        {
+          "type": "agentcore_policy",
+          "resources": [
+            "policy-engine-enterprise"
+          ],
+          "actions": [
+            "policy.evaluate"
+          ]
+        }
+      ],
+      "scopes": [
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ],
+      "status": "idle",
+      "order": 7,
+      "branchId": "gateway",
+      "stopOnFailure": false
+    },
+    {
+      "id": "step-e-gateway-identity",
+      "edgeId": "e-gateway-identity",
+      "sourceNodeId": "gateway-enterprise-tools",
+      "targetNodeId": "identity-default",
+      "actionKind": "identity_resource_token",
+      "authStrategy": "oauth_token_exchange_obo",
+      "resource": "identity-default",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "identity-default"
+          ]
+        }
+      ],
+      "scopes": [
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ],
+      "status": "idle",
+      "order": 8,
+      "branchId": "gateway",
+      "stopOnFailure": false
+    },
+    {
+      "id": "step-e-identity-keycloak-slack",
+      "edgeId": "e-identity-keycloak-slack",
+      "sourceNodeId": "identity-default",
+      "targetNodeId": "idp-keycloak",
+      "actionKind": "identity_keycloak_provider",
+      "authStrategy": "identity_provider",
+      "resource": "https://keycloak.example.local/realms/agentcore-lab",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "https://keycloak.example.local/realms/agentcore-lab"
+          ]
+        }
+      ],
+      "status": "idle",
+      "order": 9,
+      "stopOnFailure": true,
+      "label": "Provider: slack-bot"
+    },
+    {
+      "id": "step-e-gateway-slack",
+      "edgeId": "e-gateway-slack",
+      "sourceNodeId": "gateway-enterprise-tools",
+      "targetNodeId": "external-slack",
+      "actionKind": "gateway_mcp_target_call",
+      "authStrategy": "none",
+      "resource": "https://mcp.slack-adapter.example.local/mcp",
+      "authorizationDetails": [
+        {
+          "type": "mcp",
+          "locations": [
+            "https://mcp.slack-adapter.example.local/mcp"
+          ],
+          "actions": [
+            "tools/list",
+            "tools/call"
+          ]
+        }
+      ],
+      "scopes": [
+        "mcp.tools.list",
+        "mcp.tools.call"
+      ],
+      "toolName": "slack.search_messages",
+      "status": "idle",
+      "order": 10,
+      "branchId": "gateway",
+      "stopOnFailure": false
+    }
   ]
 }

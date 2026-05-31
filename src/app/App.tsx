@@ -15,7 +15,7 @@ export function App() {
   return (
     <AppShell>
       <div className="grid min-h-0 min-w-0 w-screen max-w-[100vw] grid-cols-[250px_minmax(620px,1fr)_360px] gap-2 overflow-hidden p-2 pb-1">
-        <Panel title="Run" className="h-full">
+        <Panel title="Scenario" className="h-full">
           <Palette />
         </Panel>
         <Panel title="Topology" className="h-full">
@@ -39,7 +39,7 @@ export function App() {
         <Inspectors />
       </div>
       <div className="min-h-0 p-2 pt-1">
-        <Panel title="Timeline" className="h-full">
+        <Panel title="Steps" className="h-full">
           <Timeline />
         </Panel>
       </div>

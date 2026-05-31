@@ -82,7 +82,7 @@ export function Palette() {
         <textarea className="mt-1 h-20 w-full resize-none border border-console-line bg-console-rail p-2 font-mono text-xs" value={userPrompt} onChange={(event) => setUserPrompt(event.target.value)} />
       </div>
       <button className="flex items-center justify-center gap-2 border border-console-cyan bg-console-cyan/10 px-3 py-2 text-xs font-semibold text-console-cyan" onClick={() => void run()}>
-        <Play size={14} /> Run
+        <Play size={14} /> Simulate
       </button>
       <div>
         <div className="field-label mb-2">Component Palette</div>

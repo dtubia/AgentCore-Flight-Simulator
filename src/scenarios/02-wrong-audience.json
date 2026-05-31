@@ -49,8 +49,8 @@
       ],
       "tokenLifetimeSeconds": 3600,
       "position": {
-        "x": 580,
-        "y": 80
+        "x": 300,
+        "y": 260
       }
     },
     {
@@ -141,5 +141,78 @@
   "expectedLearningOutcomes": [
     "Audience isolation prevents token replay across resource servers.",
     "OAuth bearer failures return 401 with protected-resource metadata."
+  ],
+  "steps": [
+    {
+      "id": "step-e-user-client",
+      "edgeId": "e-user-client",
+      "sourceNodeId": "user-alice",
+      "targetNodeId": "client-portal",
+      "actionKind": "user_open_client",
+      "authStrategy": "none",
+      "resource": "client-portal",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "client-portal"
+          ]
+        }
+      ],
+      "status": "idle",
+      "order": 1,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-client-idp",
+      "edgeId": "e-client-idp",
+      "sourceNodeId": "client-portal",
+      "targetNodeId": "idp-keycloak",
+      "actionKind": "oauth_authorization_code_pkce",
+      "authStrategy": "oauth_authorization_code_pkce",
+      "resource": "https://keycloak.example.local/realms/agentcore-lab",
+      "authorizationDetails": [
+        {
+          "type": "resource",
+          "locations": [
+            "https://keycloak.example.local/realms/agentcore-lab"
+          ]
+        }
+      ],
+      "scopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "status": "idle",
+      "order": 2,
+      "stopOnFailure": true
+    },
+    {
+      "id": "step-e-client-runtime",
+      "edgeId": "e-client-runtime",
+      "sourceNodeId": "client-portal",
+      "targetNodeId": "agent-travel",
+      "actionKind": "runtime_invoke",
+      "authStrategy": "oauth_bearer",
+      "resource": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "authorizationDetails": [
+        {
+          "type": "agentcore_runtime",
+          "locations": [
+            "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456"
+          ],
+          "actions": [
+            "agent.invoke"
+          ]
+        }
+      ],
+      "scopes": [
+        "agent.invoke"
+      ],
+      "status": "idle",
+      "order": 3,
+      "stopOnFailure": true
+    }
   ]
 }

@@ -1,0 +1,435 @@
+{
+  "schemaVersion": "1.0",
+  "id": "01-google-drive-obo",
+  "name": "User-delegated Google Drive through AgentCore Gateway",
+  "description": "Authorization code + PKCE, Runtime inbound JWT, workload identity, Gateway policy, OBO token exchange, and Google Drive MCP target.",
+  "nodes": [
+    {
+      "id": "user-alice",
+      "type": "user",
+      "displayName": "Alice Martinez",
+      "tenant": "bbva-demo",
+      "groups": [
+        "employees",
+        "hr-self-service"
+      ],
+      "department": "People",
+      "riskLevel": "standard",
+      "position": {
+        "x": 20,
+        "y": 70
+      }
+    },
+    {
+      "id": "client-portal",
+      "type": "client_app",
+      "displayName": "Client App",
+      "clientId": "agent-portal-spa",
+      "redirectUri": "https://app.example.local/callback",
+      "pkce": true,
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "agent.invoke",
+        "mcp.tools.call"
+      ],
+      "position": {
+        "x": 300,
+        "y": 70
+      }
+    },
+    {
+      "id": "idp-keycloak",
+      "type": "authorization_server",
+      "displayName": "Keycloak AS",
+      "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+      "jwksUri": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/certs",
+      "authorizationEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/auth",
+      "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+      "supportedGrantTypes": [
+        "authorization_code",
+        "client_credentials",
+        "urn:ietf:params:oauth:grant-type:token-exchange"
+      ],
+      "tokenLifetimeSeconds": 3600,
+      "position": {
+        "x": 300,
+        "y": 230
+      }
+    },
+    {
+      "id": "agent-travel",
+      "type": "agentcore_runtime_agent",
+      "displayName": "TravelExpenseAgent",
+      "name": "TravelExpenseAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "HTTP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-runtime:travel-expense-agent"
+        ],
+        "allowedClients": [
+          "agent-portal-spa"
+        ],
+        "allowedScopes": [
+          "agent.invoke"
+        ],
+        "requiredClaims": {
+          "tenant": "bbva-demo"
+        }
+      },
+      "workloadIdentity": {
+        "name": "travel-expense-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/travel-expense-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-expenses-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 580,
+        "y": 70
+      }
+    },
+    {
+      "id": "identity-default",
+      "type": "agentcore_identity",
+      "displayName": "AgentCore Identity",
+      "tokenVault": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:token-vault/default"
+      },
+      "credentialProviders": [
+        {
+          "name": "google-drive-obo",
+          "kind": "oauth2",
+          "vendor": "Google",
+          "flow": "ON_BEHALF_OF_TOKEN_EXCHANGE",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+        "allowedWorkloadIdentities": [
+          "travel-expense-agent"
+        ],
+        "allowedClients": [
+          "travel-expense-agent"
+        ],
+        "allowedResources": [
+          "https://www.googleapis.com/drive/v3"
+        ],
+        "allowTokenExchange": true,
+        "allowSubjectDelegation": true,
+        "tokenExchange": {
+          "grantType": "TOKEN_EXCHANGE",
+          "actorTokenContent": "M2M",
+          "actorTokenScopes": [
+            "agent.workload"
+          ],
+          "allowAdditionalScopes": false
+        },
+        "scopes": [
+          "https://www.googleapis.com/auth/drive.metadata.readonly",
+          "https://www.googleapis.com/auth/drive.readonly"
+          ]
+        },
+        {
+          "name": "google-drive-service",
+          "kind": "oauth2",
+          "vendor": "Google",
+          "flow": "CLIENT_CREDENTIALS",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+        "allowedWorkloadIdentities": [
+          "travel-expense-agent"
+        ],
+        "allowedClients": [
+          "travel-expense-agent"
+        ],
+        "allowedResources": [
+          "https://www.googleapis.com/drive/v3"
+        ],
+        "scopes": [
+            "https://www.googleapis.com/auth/drive.metadata.readonly",
+            "https://www.googleapis.com/auth/drive.readonly"
+          ]
+        },
+        {
+          "name": "slack-bot",
+          "kind": "oauth2",
+          "vendor": "Slack",
+          "flow": "CLIENT_CREDENTIALS",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+          "allowedWorkloadIdentities": [
+            "travel-expense-agent"
+          ],
+          "scopes": [
+            "channels:read",
+            "chat:write",
+            "users:read"
+          ]
+        },
+        {
+          "name": "github-user",
+          "kind": "oauth2",
+          "vendor": "GitHub",
+          "flow": "AUTHORIZATION_CODE",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+          "allowedWorkloadIdentities": [
+            "engineering-agent"
+          ],
+          "scopes": [
+            "repo",
+            "read:org",
+            "workflow"
+          ]
+        },
+        {
+          "name": "workday-custom",
+          "kind": "oauth2",
+          "vendor": "CustomOAuth2",
+          "flow": "CLIENT_CREDENTIALS",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+          "allowedWorkloadIdentities": [
+            "hr-agent"
+          ],
+          "scopes": [
+            "wd.workers.read",
+            "wd.timeoff.write"
+          ]
+        }
+      ],
+      "position": {
+        "x": 580,
+        "y": 340
+      }
+    },
+    {
+      "id": "gateway-enterprise-tools",
+      "type": "agentcore_gateway",
+      "displayName": "AgentCore Gateway",
+      "gatewayArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/enterprise-tools-abcdefghij",
+      "gatewayUrl": "https://enterprise-tools-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp",
+      "protocol": "MCP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-gateway:enterprise-tools"
+        ],
+        "allowedClients": [
+          "agent-runtime-client"
+        ],
+        "allowedScopes": [
+          "mcp.tools.list",
+          "mcp.tools.call"
+        ]
+      },
+      "policyMode": "ENFORCE",
+      "semanticSearchEnabled": true,
+      "position": {
+        "x": 860,
+        "y": 70
+      }
+    },
+    {
+      "id": "policy-engine-enterprise",
+      "type": "policy_engine",
+      "displayName": "Policy Engine",
+      "mode": "ENFORCE",
+      "policies": [
+        {
+          "id": "allow-drive-search",
+          "effect": "allow",
+          "principal": "travel-expense-agent",
+          "action": "google_drive.search_files",
+          "condition": "context.scopes.includes('https://www.googleapis.com/auth/drive.readonly')"
+        },
+        {
+          "id": "allow-drive-readonly",
+          "effect": "allow",
+          "principal": "travel-expense-agent",
+          "action": "google_drive.read_file",
+          "condition": "context.scopes.includes('https://www.googleapis.com/auth/drive.readonly')"
+        }
+      ],
+      "position": {
+        "x": 860,
+        "y": 340
+      }
+    },
+    {
+      "id": "external-google-drive",
+      "type": "external_mcp_server",
+      "displayName": "Google Drive MCP Adapter",
+      "name": "Google Drive MCP Adapter",
+      "vendor": "Google",
+      "endpoint": "https://mcp.google-drive-adapter.example.local/mcp",
+      "auth": {
+        "type": "OAuth2",
+        "mode": "on_behalf_of",
+        "credentialProviderName": "google-drive-obo"
+      },
+      "tools": [
+        {
+          "name": "google_drive.search_files",
+          "description": "Search files visible to the authenticated user",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/drive.metadata.readonly"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "mimeType": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "name": "google_drive.read_file",
+          "description": "Read a file visible to the authenticated user",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/drive.readonly"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "fileId"
+            ]
+          }
+        },
+        {
+          "name": "google_drive.export_file",
+          "description": "Export a Drive file",
+          "requiredScopes": [
+            "https://www.googleapis.com/auth/drive.file"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "fileId": {
+                "type": "string"
+              },
+              "mimeType": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "fileId"
+            ]
+          }
+        }
+      ],
+      "errors": [
+        "401 invalid_token",
+        "403 insufficient_scope",
+        "404 file_not_found",
+        "429 rate_limit_exceeded"
+      ],
+      "position": {
+        "x": 1140,
+        "y": 70
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-user-client",
+      "source": "user-alice",
+      "target": "client-portal",
+      "kind": "user_to_client"
+    },
+    {
+      "id": "e-client-idp",
+      "source": "client-portal",
+      "target": "idp-keycloak",
+      "kind": "client_to_idp"
+    },
+    {
+      "id": "e-client-runtime",
+      "source": "client-portal",
+      "target": "agent-travel",
+      "kind": "client_to_runtime",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-runtime-identity",
+      "source": "agent-travel",
+      "target": "identity-default",
+      "kind": "runtime_to_identity"
+    },
+    {
+      "id": "e-runtime-gateway",
+      "source": "agent-travel",
+      "target": "gateway-enterprise-tools",
+      "kind": "runtime_to_gateway_mcp",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-gateway-policy",
+      "source": "gateway-enterprise-tools",
+      "target": "policy-engine-enterprise",
+      "kind": "gateway_to_policy_engine"
+    },
+    {
+      "id": "e-gateway-identity",
+      "source": "gateway-enterprise-tools",
+      "target": "identity-default",
+      "kind": "gateway_to_identity"
+    },
+    {
+      "id": "e-gateway-google",
+      "source": "gateway-enterprise-tools",
+      "target": "external-google-drive",
+      "kind": "gateway_to_mcp_target"
+    },
+    {
+      "id": "e-identity-keycloak-google-obo",
+      "source": "identity-default",
+      "target": "idp-keycloak",
+      "kind": "identity_to_authorization_server",
+      "label": "Provider: google-drive-obo",
+      "credentialProviderName": "google-drive-obo",
+      "credentialProviderFlow": "ON_BEHALF_OF_TOKEN_EXCHANGE"
+    },
+    {
+      "id": "e-identity-keycloak-google-service",
+      "source": "identity-default",
+      "target": "idp-keycloak",
+      "kind": "identity_to_authorization_server",
+      "label": "Provider: google-drive-service",
+      "credentialProviderName": "google-drive-service",
+      "credentialProviderFlow": "CLIENT_CREDENTIALS"
+    }
+  ],
+  "initialUserPrompt": "Find my receipts from last month and prepare an expense summary.",
+  "mutations": [],
+  "expectedLearningOutcomes": [
+    "OBO preserves user context and scopes downstream access.",
+    "Gateway policy is evaluated at tool-call time."
+  ]
+}

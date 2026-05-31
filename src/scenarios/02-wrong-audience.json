@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1.0",
+  "id": "02-wrong-audience",
+  "name": "Wrong audience token replay",
+  "description": "A Google Drive audience token is replayed to AgentCore Runtime and rejected.",
+  "nodes": [
+    {
+      "id": "user-alice",
+      "type": "user",
+      "displayName": "Alice Martinez",
+      "tenant": "bbva-demo",
+      "groups": [
+        "employees"
+      ],
+      "department": "People",
+      "riskLevel": "standard",
+      "position": {
+        "x": 20,
+        "y": 80
+      }
+    },
+    {
+      "id": "client-portal",
+      "type": "client_app",
+      "displayName": "Client App",
+      "clientId": "agent-portal-spa",
+      "redirectUri": "https://app.example.local/callback",
+      "pkce": true,
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "position": {
+        "x": 300,
+        "y": 80
+      }
+    },
+    {
+      "id": "idp-keycloak",
+      "type": "authorization_server",
+      "displayName": "Keycloak AS",
+      "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+      "jwksUri": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/certs",
+      "authorizationEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/auth",
+      "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+      "supportedGrantTypes": [
+        "authorization_code"
+      ],
+      "tokenLifetimeSeconds": 3600,
+      "position": {
+        "x": 580,
+        "y": 80
+      }
+    },
+    {
+      "id": "agent-travel",
+      "type": "agentcore_runtime_agent",
+      "displayName": "TravelExpenseAgent",
+      "name": "TravelExpenseAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "HTTP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-runtime:travel-expense-agent"
+        ],
+        "allowedClients": [
+          "agent-portal-spa"
+        ],
+        "allowedScopes": [
+          "agent.invoke"
+        ],
+        "requiredClaims": {
+          "tenant": "bbva-demo"
+        }
+      },
+      "workloadIdentity": {
+        "name": "travel-expense-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/travel-expense-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-expenses-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 860,
+        "y": 80
+      }
+    },
+    {
+      "id": "identity-default",
+      "type": "agentcore_identity",
+      "displayName": "AgentCore Identity",
+      "tokenVault": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:token-vault/default"
+      },
+      "credentialProviders": [],
+      "position": {
+        "x": 860,
+        "y": 290
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-user-client",
+      "source": "user-alice",
+      "target": "client-portal",
+      "kind": "user_to_client"
+    },
+    {
+      "id": "e-client-idp",
+      "source": "client-portal",
+      "target": "idp-keycloak",
+      "kind": "client_to_idp"
+    },
+    {
+      "id": "e-client-runtime",
+      "source": "client-portal",
+      "target": "agent-travel",
+      "kind": "client_to_runtime",
+      "authMode": "OAUTH_JWT"
+    }
+  ],
+  "initialUserPrompt": "Invoke the travel expense agent with a replayed Google Drive token.",
+  "mutations": [
+    {
+      "id": "wrong_audience",
+      "label": "Wrong audience",
+      "description": "Issue token for Google Drive.",
+      "target": "token",
+      "enabled": true,
+      "expectedFinding": "Audience isolation prevents replay."
+    }
+  ],
+  "expectedLearningOutcomes": [
+    "Audience isolation prevents token replay across resource servers.",
+    "OAuth bearer failures return 401 with protected-resource metadata."
+  ]
+}

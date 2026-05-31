@@ -1,0 +1,379 @@
+@import "@xyflow/react/dist/style.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #d7dee9;
+  background: #080b10;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  max-width: 100vw;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: Inter, Segoe UI, system-ui, sans-serif;
+}
+
+.react-flow {
+  background:
+    linear-gradient(rgba(57, 197, 187, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 197, 187, 0.05) 1px, transparent 1px),
+    #0a0f16;
+  background-size: 24px 24px;
+}
+
+.react-flow__node {
+  border-radius: 6px;
+  border: 1px solid #2a3748;
+  background: transparent;
+  color: #d7dee9;
+  font-family: Cascadia Mono, Consolas, monospace;
+  font-size: 11px;
+  min-width: 154px;
+}
+
+.react-flow__node-default.selectable.selected {
+  box-shadow: 0 0 0 2px #39c5bb;
+}
+
+.react-flow__edge-path {
+  stroke: #39c5bb;
+  transition: stroke 120ms ease, stroke-width 120ms ease, filter 120ms ease;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #39c5bb;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(57, 197, 187, 0.6));
+}
+
+.react-flow__connection-path {
+  animation: connection-dash 0.7s linear infinite;
+  stroke-dasharray: 10 6;
+}
+
+.react-flow__edgeupdater {
+  fill: #080b10;
+  stroke: #39c5bb;
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 7px rgba(57, 197, 187, 0.55));
+  cursor: grab;
+}
+
+.react-flow__edgeupdater:hover {
+  fill: #39c5bb;
+  stroke: #d7fff8;
+}
+
+.agentcore-edge-overlay {
+  z-index: 1;
+}
+
+.react-flow__nodes {
+  z-index: 2;
+}
+
+.react-flow__edges {
+  z-index: 0;
+}
+
+.agentcore-node-card {
+  position: relative;
+  z-index: 3;
+  min-height: 62px;
+  border: 1px solid color-mix(in srgb, var(--asset-color) 72%, #263142);
+  border-radius: 6px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--asset-color) 18%, transparent), transparent 54%),
+    var(--asset-bg),
+    #111823;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 10px 26px rgba(0, 0, 0, 0.24);
+}
+
+.agentcore-node-accent {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  border-radius: 6px 0 0 6px;
+  background: var(--asset-color);
+}
+
+.agentcore-node-chip {
+  flex: 0 0 auto;
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--asset-color) 65%, #263142);
+  background: color-mix(in srgb, var(--asset-color) 15%, #080b10);
+  color: var(--asset-color);
+  padding: 2px 5px;
+  font-size: 9px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.agentcore-handle {
+  z-index: 10 !important;
+  width: 36px !important;
+  height: 36px !important;
+  border: 0 !important;
+  background: transparent !important;
+  opacity: 1 !important;
+  pointer-events: all !important;
+  cursor: crosshair !important;
+  box-shadow: none;
+  transition: none;
+  touch-action: none;
+  user-select: none;
+  overflow: visible;
+}
+
+.agentcore-handle::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 2px solid var(--asset-color, #39c5bb);
+  border-radius: 999px;
+  background: #080b10;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--asset-color, #39c5bb) 12%, transparent);
+  opacity: 1;
+  pointer-events: none;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.agentcore-handle-active-source::before,
+.agentcore-handle-target-candidate::before,
+.agentcore-handle-control-ready::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid color-mix(in srgb, var(--asset-color, #39c5bb) 72%, #ffffff);
+  border-radius: 999px;
+  opacity: 0.72;
+  pointer-events: none;
+  animation: handle-micro-vibe 180ms linear infinite;
+}
+
+.agentcore-handle:hover,
+.agentcore-handle.connectingto,
+.agentcore-handle.connectingfrom {
+  background: transparent !important;
+}
+
+.agentcore-handle:hover::after,
+.agentcore-handle.connectingto::after,
+.agentcore-handle.connectingfrom::after {
+  background: var(--asset-color, #39c5bb);
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--asset-color, #39c5bb) 18%, transparent);
+}
+
+.agentcore-handle-active-source {
+  background: transparent !important;
+}
+
+.agentcore-handle-active-source::after {
+  background: var(--asset-color, #39c5bb);
+  border-color: #d7fff8;
+  box-shadow:
+    0 0 0 8px color-mix(in srgb, var(--asset-color, #39c5bb) 24%, transparent),
+    0 0 18px color-mix(in srgb, var(--asset-color, #39c5bb) 58%, transparent);
+}
+
+.agentcore-handle-target-ready::after {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--asset-color, #39c5bb) 16%, transparent),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.02);
+}
+
+.agentcore-handle-target-candidate {
+  background: transparent !important;
+}
+
+.agentcore-handle-target-candidate::after {
+  background: var(--asset-color, #39c5bb);
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 8px color-mix(in srgb, var(--asset-color, #39c5bb) 24%, transparent),
+    0 0 20px color-mix(in srgb, var(--asset-color, #39c5bb) 64%, transparent);
+}
+
+.agentcore-handle-edge-endpoint {
+  cursor: grab !important;
+}
+
+.agentcore-handle-edge-endpoint::after {
+  background: color-mix(in srgb, var(--asset-color, #39c5bb) 70%, #ffffff);
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--asset-color, #39c5bb) 18%, transparent),
+    0 0 0 10px rgba(244, 180, 84, 0.10),
+    0 0 18px color-mix(in srgb, var(--asset-color, #39c5bb) 45%, transparent);
+}
+
+.agentcore-handle-edge-endpoint:hover::after {
+  background: color-mix(in srgb, var(--asset-color, #39c5bb) 72%, #ffffff);
+}
+
+.agentcore-handle-in {
+  left: -18px !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+.agentcore-handle-out {
+  right: -18px !important;
+  transform: translate(50%, -50%) !important;
+}
+
+.agentcore-handle-control {
+  width: 32px !important;
+  height: 32px !important;
+  bottom: -16px !important;
+  left: 50% !important;
+  background: transparent !important;
+  box-shadow: none;
+  transform: translate(-50%, 50%) !important;
+}
+
+.agentcore-handle-control::after {
+  inset: 8px;
+  border-color: #b892ff;
+  background: #080b10;
+  box-shadow: 0 0 0 5px rgba(184, 146, 255, 0.12);
+}
+
+.agentcore-handle-control:hover,
+.agentcore-handle-control.connectingto,
+.agentcore-handle-control.connectingfrom,
+.agentcore-handle-control-ready {
+  background: transparent !important;
+  transform: translate(-50%, 50%) !important;
+}
+
+.agentcore-handle-control:hover::after,
+.agentcore-handle-control.connectingto::after,
+.agentcore-handle-control.connectingfrom::after,
+.agentcore-handle-control-ready::after {
+  background: #b892ff;
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 7px rgba(184, 146, 255, 0.20),
+    0 0 18px rgba(184, 146, 255, 0.52);
+}
+
+.agentcore-handle-control-ready::before {
+  border-color: #d7c2ff;
+}
+
+@keyframes handle-micro-vibe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(0.45px, -0.35px, 0);
+  }
+  50% {
+    transform: translate3d(-0.35px, 0.35px, 0);
+  }
+  75% {
+    transform: translate3d(0.25px, 0.2px, 0);
+  }
+}
+
+.agentcore-connection-preview {
+  z-index: 4;
+}
+
+.agentcore-preview-path {
+  stroke: #39c5bb;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 11 7;
+  animation: connection-dash 0.7s linear infinite;
+  filter: drop-shadow(0 0 10px rgba(57, 197, 187, 0.7));
+}
+
+.agentcore-preview-path-reconnect {
+  stroke: #f4b454;
+  filter: drop-shadow(0 0 10px rgba(244, 180, 84, 0.75));
+}
+
+.agentcore-preview-path-glow {
+  stroke: rgba(57, 197, 187, 0.22);
+  stroke-width: 12;
+  stroke-dasharray: none;
+  animation: none;
+  filter: blur(2px);
+}
+
+.agentcore-preview-end {
+  fill: #080b10;
+  stroke: #39c5bb;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 9px rgba(57, 197, 187, 0.65));
+}
+
+.agentcore-preview-end-valid {
+  fill: #39c5bb;
+  stroke: #ffffff;
+}
+
+.agentcore-preview-label {
+  fill: #9ad8ff;
+  font-family: Cascadia Mono, Consolas, monospace;
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: #080b10;
+  stroke-width: 4px;
+  text-transform: uppercase;
+}
+
+@keyframes connection-dash {
+  to {
+    stroke-dashoffset: -17;
+  }
+}
+
+.scrollbar-thin {
+  scrollbar-color: #2d3a4d #0c1118;
+  scrollbar-width: thin;
+}
+
+.panel-title {
+  @apply border-b border-console-line px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-console-muted;
+}
+
+.field-label {
+  @apply text-[10px] uppercase tracking-[0.08em] text-console-muted;
+}
+
+.status-allow {
+  @apply text-console-green;
+}
+
+.status-deny {
+  @apply text-console-red;
+}
+
+.status-warn {
+  @apply text-console-amber;
+}
+
+.status-info {
+  @apply text-console-blue;
+}

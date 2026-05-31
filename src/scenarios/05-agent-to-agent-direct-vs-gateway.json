@@ -1,0 +1,276 @@
+{
+  "schemaVersion": "1.0",
+  "id": "05-agent-to-agent-direct-vs-gateway",
+  "name": "Agent-to-agent direct A2A versus Gateway HTTP target",
+  "description": "Compares direct A2A with a Gateway-mediated Runtime HTTP target signed with SigV4 and a custom forwarded OAuth context header.",
+  "nodes": [
+    {
+      "id": "user-alice",
+      "type": "user",
+      "displayName": "Alice Martinez",
+      "tenant": "bbva-demo",
+      "groups": [
+        "employees"
+      ],
+      "department": "People",
+      "riskLevel": "standard",
+      "position": {
+        "x": 20,
+        "y": 60
+      }
+    },
+    {
+      "id": "client-portal",
+      "type": "client_app",
+      "displayName": "Client App",
+      "clientId": "agent-portal-spa",
+      "redirectUri": "https://app.example.local/callback",
+      "pkce": true,
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "position": {
+        "x": 300,
+        "y": 60
+      }
+    },
+    {
+      "id": "idp-keycloak",
+      "type": "authorization_server",
+      "displayName": "Keycloak AS",
+      "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+      "jwksUri": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/certs",
+      "authorizationEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/auth",
+      "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+      "supportedGrantTypes": [
+        "authorization_code"
+      ],
+      "tokenLifetimeSeconds": 3600,
+      "position": {
+        "x": 580,
+        "y": 60
+      }
+    },
+    {
+      "id": "agent-travel",
+      "type": "agentcore_runtime_agent",
+      "displayName": "TravelExpenseAgent",
+      "name": "TravelExpenseAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "HTTP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-runtime:travel-expense-agent"
+        ],
+        "allowedClients": [
+          "agent-portal-spa"
+        ],
+        "allowedScopes": [
+          "agent.invoke"
+        ],
+        "requiredClaims": {
+          "tenant": "bbva-demo"
+        }
+      },
+      "workloadIdentity": {
+        "name": "travel-expense-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/travel-expense-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-expenses-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 860,
+        "y": 140
+      }
+    },
+    {
+      "id": "agent-policy-review",
+      "type": "agentcore_runtime_agent",
+      "displayName": "PolicyReviewAgent",
+      "name": "PolicyReviewAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/policy-review-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "A2A",
+      "inboundAuth": {
+        "mode": "AWS_IAM_SIGV4",
+        "sigv4": {
+          "region": "us-west-2",
+          "service": "bedrock-agentcore",
+          "principalArn": "arn:aws:iam::123456789012:role/AgentCoreGatewayRuntimeInvokeRole",
+          "allowedActions": [
+            "bedrock-agentcore:InvokeAgentRuntime"
+          ],
+          "allowedResources": [
+            "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/policy-review-agent-abcd123456"
+          ]
+        },
+        "forwardedOAuthToken": {
+          "enabled": true,
+          "headerName": "X-AgentCore-Forwarded-OAuth-Token",
+          "required": true,
+          "validateAsUserContext": true,
+          "description": "Custom OAuth context header carried alongside SigV4."
+        }
+      },
+      "workloadIdentity": {
+        "name": "policy-review-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/policy-review-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-policy-review-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 1420,
+        "y": 140
+      }
+    },
+    {
+      "id": "identity-default",
+      "type": "agentcore_identity",
+      "displayName": "AgentCore Identity",
+      "tokenVault": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:token-vault/default"
+      },
+      "credentialProviders": [],
+      "position": {
+        "x": 860,
+        "y": 380
+      }
+    },
+    {
+      "id": "gateway-enterprise-tools",
+      "type": "agentcore_gateway",
+      "displayName": "AgentCore Gateway",
+      "gatewayArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/runtime-targets-abcdefghij",
+      "gatewayUrl": "https://runtime-targets-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp",
+      "protocol": "MCP",
+      "inboundAuth": {
+        "mode": "AWS_IAM_SIGV4",
+        "sigv4": {
+          "region": "us-west-2",
+          "service": "bedrock-agentcore",
+          "principalArn": "arn:aws:iam::123456789012:role/TravelExpenseAgentRuntimeRole",
+          "allowedActions": [
+            "bedrock-agentcore:InvokeGateway"
+          ],
+          "allowedResources": [
+            "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/runtime-targets-abcdefghij"
+          ]
+        },
+        "forwardedOAuthToken": {
+          "enabled": true,
+          "headerName": "X-AgentCore-Inbound-OAuth-Token",
+          "required": true,
+          "validateAsUserContext": true,
+          "description": "Carries the original inbound OAuth token when Authorization is occupied by SigV4."
+        }
+      },
+      "policyMode": "ENFORCE",
+      "semanticSearchEnabled": true,
+      "position": {
+        "x": 1140,
+        "y": 140
+      }
+    },
+    {
+      "id": "policy-engine-enterprise",
+      "type": "policy_engine",
+      "displayName": "Policy Engine",
+      "mode": "ENFORCE",
+      "policies": [
+        {
+          "id": "allow-policy-review-runtime",
+          "effect": "allow",
+          "principal": "travel-expense-agent",
+          "action": "runtime.invoke.PolicyReviewAgent",
+          "condition": "context.scopes.includes('agent.invoke')"
+        }
+      ],
+      "position": {
+        "x": 1140,
+        "y": 380
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-client-runtime",
+      "source": "client-portal",
+      "target": "agent-travel",
+      "kind": "client_to_runtime",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-direct-a2a",
+      "source": "agent-travel",
+      "target": "agent-policy-review",
+      "kind": "runtime_to_runtime_a2a",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-runtime-gateway",
+      "source": "agent-travel",
+      "target": "gateway-enterprise-tools",
+      "kind": "runtime_to_gateway_mcp",
+      "authMode": "AWS_IAM_SIGV4",
+      "forwardedOAuthTokenHeader": "X-AgentCore-Inbound-OAuth-Token"
+    },
+    {
+      "id": "e-gateway-policy",
+      "source": "gateway-enterprise-tools",
+      "target": "policy-engine-enterprise",
+      "kind": "gateway_to_policy_engine"
+    },
+    {
+      "id": "e-gateway-runtime",
+      "source": "gateway-enterprise-tools",
+      "target": "agent-policy-review",
+      "kind": "gateway_to_http_runtime_target",
+      "authMode": "AWS_IAM_SIGV4",
+      "forwardedOAuthTokenHeader": "X-AgentCore-Forwarded-OAuth-Token"
+    },
+    {
+      "id": "e-user-client",
+      "source": "user-alice",
+      "target": "client-portal",
+      "kind": "user_to_client"
+    },
+    {
+      "id": "e-client-idp",
+      "source": "client-portal",
+      "target": "idp-keycloak",
+      "kind": "client_to_idp"
+    },
+    {
+      "id": "e-runtime-identity",
+      "source": "agent-travel",
+      "target": "identity-default",
+      "kind": "runtime_to_identity"
+    }
+  ],
+  "initialUserPrompt": "Ask the policy review agent whether a compensation request should be allowed.",
+  "mutations": [
+    {
+      "id": "runtime_target_sigv4",
+      "label": "Runtime target SigV4",
+      "description": "Gateway signs target runtime invocation.",
+      "target": "sigv4",
+      "enabled": true,
+      "expectedFinding": "Gateway-to-runtime SigV4 is inspected."
+    }
+  ],
+  "expectedLearningOutcomes": [
+    "Direct A2A is not the same governance boundary as Gateway-mediated invocation.",
+    "Gateway can use SigV4 to invoke a Runtime HTTP target and carry OAuth user context in a custom header."
+  ]
+}

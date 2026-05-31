@@ -1,0 +1,353 @@
+{
+  "schemaVersion": "1.0",
+  "id": "03-workday-policy-deny",
+  "name": "Gateway policy denies Workday compensation access",
+  "description": "Runtime reaches Gateway, but call-time policy denies sensitive Workday compensation access.",
+  "nodes": [
+    {
+      "id": "user-alice",
+      "type": "user",
+      "displayName": "Alice Martinez",
+      "tenant": "bbva-demo",
+      "groups": [
+        "employees"
+      ],
+      "department": "Engineering",
+      "riskLevel": "standard",
+      "position": {
+        "x": 20,
+        "y": 60
+      }
+    },
+    {
+      "id": "client-portal",
+      "type": "client_app",
+      "displayName": "HR Portal",
+      "clientId": "agent-portal-spa",
+      "redirectUri": "https://app.example.local/callback",
+      "pkce": true,
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "position": {
+        "x": 300,
+        "y": 60
+      }
+    },
+    {
+      "id": "idp-keycloak",
+      "type": "authorization_server",
+      "displayName": "Keycloak AS",
+      "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+      "jwksUri": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/certs",
+      "authorizationEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/auth",
+      "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+      "supportedGrantTypes": [
+        "authorization_code"
+      ],
+      "tokenLifetimeSeconds": 3600,
+      "position": {
+        "x": 580,
+        "y": 60
+      }
+    },
+    {
+      "id": "agent-travel",
+      "type": "agentcore_runtime_agent",
+      "displayName": "HRAgent",
+      "name": "HRAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/hr-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "HTTP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-runtime:travel-expense-agent"
+        ],
+        "allowedClients": [
+          "agent-portal-spa"
+        ],
+        "allowedScopes": [
+          "agent.invoke"
+        ],
+        "requiredClaims": {
+          "tenant": "bbva-demo"
+        }
+      },
+      "workloadIdentity": {
+        "name": "hr-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/hr-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-hr-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 860,
+        "y": 160
+      }
+    },
+    {
+      "id": "identity-default",
+      "type": "agentcore_identity",
+      "displayName": "AgentCore Identity",
+      "tokenVault": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:token-vault/default"
+      },
+      "credentialProviders": [
+        {
+          "name": "workday-custom",
+          "kind": "oauth2",
+          "vendor": "CustomOAuth2",
+          "flow": "CLIENT_CREDENTIALS",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+          "allowedWorkloadIdentities": [
+            "hr-agent"
+          ],
+          "scopes": [
+            "wd.workers.read",
+            "wd.timeoff.write"
+          ]
+        }
+      ],
+      "position": {
+        "x": 860,
+        "y": 390
+      }
+    },
+    {
+      "id": "gateway-enterprise-tools",
+      "type": "agentcore_gateway",
+      "displayName": "AgentCore Gateway",
+      "gatewayArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/hr-tools-abcdefghij",
+      "gatewayUrl": "https://hr-tools-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp",
+      "protocol": "MCP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-gateway:enterprise-tools"
+        ],
+        "allowedClients": [
+          "agent-runtime-client"
+        ],
+        "allowedScopes": [
+          "mcp.tools.list",
+          "mcp.tools.call"
+        ]
+      },
+      "policyMode": "ENFORCE",
+      "semanticSearchEnabled": true,
+      "position": {
+        "x": 1140,
+        "y": 160
+      }
+    },
+    {
+      "id": "policy-engine-enterprise",
+      "type": "policy_engine",
+      "displayName": "Policy Engine",
+      "mode": "ENFORCE",
+      "policies": [
+        {
+          "id": "deny-non-people-compensation",
+          "effect": "deny",
+          "principal": "*",
+          "action": "workday.get_compensation",
+          "condition": "principal.department != 'People'"
+        },
+        {
+          "id": "allow-worker-read",
+          "effect": "allow",
+          "principal": "hr-agent",
+          "action": "workday.get_worker",
+          "condition": "context.scopes.includes('wd.workers.read')"
+        }
+      ],
+      "position": {
+        "x": 1140,
+        "y": 390
+      }
+    },
+    {
+      "id": "external-workday",
+      "type": "external_mcp_server",
+      "displayName": "Simulated Workday MCP adapter",
+      "name": "Workday MCP Adapter",
+      "vendor": "Workday",
+      "endpoint": "https://mcp.workday-adapter.example.local/mcp",
+      "auth": {
+        "type": "OAuth2",
+        "mode": "client_credentials",
+        "credentialProviderName": "workday-custom"
+      },
+      "tools": [
+        {
+          "name": "workday.get_worker",
+          "description": "Retrieve basic worker profile and org assignment",
+          "requiredScopes": [
+            "wd.workers.read"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "workerId": {
+                "type": "string"
+              },
+              "includeOrg": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "workerId"
+            ]
+          }
+        },
+        {
+          "name": "workday.get_compensation",
+          "description": "Retrieve compensation summary for a worker",
+          "requiredScopes": [
+            "wd.compensation.read"
+          ],
+          "sensitive": true,
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "workerId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "workerId"
+            ]
+          }
+        },
+        {
+          "name": "workday.request_time_off",
+          "description": "Create a time off request",
+          "requiredScopes": [
+            "wd.timeoff.write"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "workerId": {
+                "type": "string"
+              },
+              "startDate": {
+                "type": "string"
+              },
+              "endDate": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "workerId",
+              "startDate",
+              "endDate"
+            ]
+          }
+        }
+      ],
+      "errors": [
+        "401 invalid_token",
+        "403 insufficient_scope",
+        "403 segregation_of_duties_violation",
+        "404 worker_not_found",
+        "429 rate_limit_exceeded"
+      ],
+      "position": {
+        "x": 1420,
+        "y": 160
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-user-client",
+      "source": "user-alice",
+      "target": "client-portal",
+      "kind": "user_to_client"
+    },
+    {
+      "id": "e-client-idp",
+      "source": "client-portal",
+      "target": "idp-keycloak",
+      "kind": "client_to_idp"
+    },
+    {
+      "id": "e-client-runtime",
+      "source": "client-portal",
+      "target": "agent-travel",
+      "kind": "client_to_runtime",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-runtime-gateway",
+      "source": "agent-travel",
+      "target": "gateway-enterprise-tools",
+      "kind": "runtime_to_gateway_mcp",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-gateway-policy",
+      "source": "gateway-enterprise-tools",
+      "target": "policy-engine-enterprise",
+      "kind": "gateway_to_policy_engine"
+    },
+    {
+      "id": "e-gateway-workday",
+      "source": "gateway-enterprise-tools",
+      "target": "external-workday",
+      "kind": "gateway_to_mcp_target"
+    },
+    {
+      "id": "e-runtime-identity",
+      "source": "agent-travel",
+      "target": "identity-default",
+      "kind": "runtime_to_identity"
+    },
+    {
+      "id": "e-gateway-identity",
+      "source": "gateway-enterprise-tools",
+      "target": "identity-default",
+      "kind": "gateway_to_identity"
+    },
+    {
+      "id": "e-identity-keycloak-workday",
+      "source": "identity-default",
+      "target": "idp-keycloak",
+      "kind": "identity_to_authorization_server",
+      "label": "Provider: workday-custom",
+      "credentialProviderName": "workday-custom",
+      "credentialProviderFlow": "CLIENT_CREDENTIALS"
+    }
+  ],
+  "initialUserPrompt": "Get the compensation details for worker W-1001.",
+  "mutations": [
+    {
+      "id": "request_sensitive_workday",
+      "label": "Sensitive Workday data",
+      "description": "Call compensation without correct scope.",
+      "target": "policy",
+      "enabled": true,
+      "expectedFinding": "Policy denies sensitive access."
+    }
+  ],
+  "expectedLearningOutcomes": [
+    "Tool listing does not guarantee tool call authorization.",
+    "Call-time context controls sensitive SaaS data."
+  ]
+}

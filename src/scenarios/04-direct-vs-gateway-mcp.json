@@ -1,0 +1,331 @@
+{
+  "schemaVersion": "1.0",
+  "id": "04-direct-vs-gateway-mcp",
+  "name": "Direct MCP versus Gateway-mediated MCP",
+  "description": "Compares a direct Slack MCP call with a governed Gateway path.",
+  "nodes": [
+    {
+      "id": "user-alice",
+      "type": "user",
+      "displayName": "Alice Martinez",
+      "tenant": "bbva-demo",
+      "groups": [
+        "employees"
+      ],
+      "department": "People",
+      "riskLevel": "standard",
+      "position": {
+        "x": 20,
+        "y": 60
+      }
+    },
+    {
+      "id": "client-portal",
+      "type": "client_app",
+      "displayName": "Client App",
+      "clientId": "agent-portal-spa",
+      "redirectUri": "https://app.example.local/callback",
+      "pkce": true,
+      "allowedScopes": [
+        "openid",
+        "profile",
+        "agent.invoke"
+      ],
+      "position": {
+        "x": 300,
+        "y": 60
+      }
+    },
+    {
+      "id": "idp-keycloak",
+      "type": "authorization_server",
+      "displayName": "Keycloak AS",
+      "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+      "jwksUri": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/certs",
+      "authorizationEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/auth",
+      "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+      "supportedGrantTypes": [
+        "authorization_code"
+      ],
+      "tokenLifetimeSeconds": 3600,
+      "position": {
+        "x": 580,
+        "y": 60
+      }
+    },
+    {
+      "id": "agent-travel",
+      "type": "agentcore_runtime_agent",
+      "displayName": "TravelExpenseAgent",
+      "name": "TravelExpenseAgent",
+      "runtimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/travel-expense-agent-abcd123456",
+      "qualifier": "DEFAULT",
+      "protocol": "HTTP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-runtime:travel-expense-agent"
+        ],
+        "allowedClients": [
+          "agent-portal-spa"
+        ],
+        "allowedScopes": [
+          "agent.invoke"
+        ],
+        "requiredClaims": {
+          "tenant": "bbva-demo"
+        }
+      },
+      "workloadIdentity": {
+        "name": "travel-expense-agent",
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:workload-identity-directory/default/workload-identity/travel-expense-agent"
+      },
+      "session": {
+        "runtimeSessionId": "alice-expenses-session-000000000001",
+        "state": "idle"
+      },
+      "position": {
+        "x": 860,
+        "y": 140
+      }
+    },
+    {
+      "id": "identity-default",
+      "type": "agentcore_identity",
+      "displayName": "AgentCore Identity",
+      "tokenVault": {
+        "arn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:token-vault/default"
+      },
+      "credentialProviders": [
+        {
+          "name": "slack-bot",
+          "kind": "oauth2",
+          "vendor": "Slack",
+          "flow": "CLIENT_CREDENTIALS",
+          "authorizationServerId": "idp-keycloak",
+          "issuer": "https://keycloak.example.local/realms/agentcore-lab",
+          "tokenEndpoint": "https://keycloak.example.local/realms/agentcore-lab/protocol/openid-connect/token",
+          "allowedWorkloadIdentities": [
+            "travel-expense-agent"
+          ],
+          "scopes": [
+            "channels:read",
+            "chat:write",
+            "users:read"
+          ]
+        }
+      ],
+      "position": {
+        "x": 860,
+        "y": 380
+      }
+    },
+    {
+      "id": "gateway-enterprise-tools",
+      "type": "agentcore_gateway",
+      "displayName": "AgentCore Gateway",
+      "gatewayArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:gateway/slack-tools-abcdefghij",
+      "gatewayUrl": "https://slack-tools-abcdefghij.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp",
+      "protocol": "MCP",
+      "inboundAuth": {
+        "mode": "OAUTH_JWT",
+        "allowedIssuers": [
+          "https://keycloak.example.local/realms/agentcore-lab"
+        ],
+        "allowedAudiences": [
+          "agentcore-gateway:enterprise-tools"
+        ],
+        "allowedClients": [
+          "agent-runtime-client"
+        ],
+        "allowedScopes": [
+          "mcp.tools.list",
+          "mcp.tools.call"
+        ]
+      },
+      "policyMode": "ENFORCE",
+      "semanticSearchEnabled": true,
+      "position": {
+        "x": 1140,
+        "y": 140
+      }
+    },
+    {
+      "id": "policy-engine-enterprise",
+      "type": "policy_engine",
+      "displayName": "Policy Engine",
+      "mode": "ENFORCE",
+      "policies": [
+        {
+          "id": "allow-slack-post",
+          "effect": "allow",
+          "principal": "travel-expense-agent",
+          "action": "slack.post_message",
+          "condition": "context.scopes.includes('chat:write')"
+        }
+      ],
+      "position": {
+        "x": 1140,
+        "y": 380
+      }
+    },
+    {
+      "id": "external-slack",
+      "type": "external_mcp_server",
+      "displayName": "Slack MCP Adapter",
+      "name": "Slack MCP Adapter",
+      "vendor": "Slack",
+      "endpoint": "https://mcp.slack-adapter.example.local/mcp",
+      "auth": {
+        "type": "OAuth2",
+        "mode": "client_credentials",
+        "credentialProviderName": "slack-bot"
+      },
+      "tools": [
+        {
+          "name": "slack.search_messages",
+          "description": "Search Slack messages",
+          "requiredScopes": [
+            "channels:read"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        },
+        {
+          "name": "slack.post_message",
+          "description": "Post a Slack message",
+          "requiredScopes": [
+            "chat:write"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "channel",
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "slack.get_user",
+          "description": "Get a Slack user",
+          "requiredScopes": [
+            "users:read"
+          ],
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "userId"
+            ]
+          }
+        }
+      ],
+      "errors": [
+        "401 invalid_auth",
+        "403 missing_scope",
+        "429 rate_limited"
+      ],
+      "position": {
+        "x": 1420,
+        "y": 140
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-client-runtime",
+      "source": "client-portal",
+      "target": "agent-travel",
+      "kind": "client_to_runtime",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-direct-slack",
+      "source": "agent-travel",
+      "target": "external-slack",
+      "kind": "runtime_to_mcp_direct"
+    },
+    {
+      "id": "e-runtime-gateway",
+      "source": "agent-travel",
+      "target": "gateway-enterprise-tools",
+      "kind": "runtime_to_gateway_mcp",
+      "authMode": "OAUTH_JWT"
+    },
+    {
+      "id": "e-gateway-policy",
+      "source": "gateway-enterprise-tools",
+      "target": "policy-engine-enterprise",
+      "kind": "gateway_to_policy_engine"
+    },
+    {
+      "id": "e-gateway-slack",
+      "source": "gateway-enterprise-tools",
+      "target": "external-slack",
+      "kind": "gateway_to_mcp_target"
+    },
+    {
+      "id": "e-user-client",
+      "source": "user-alice",
+      "target": "client-portal",
+      "kind": "user_to_client"
+    },
+    {
+      "id": "e-client-idp",
+      "source": "client-portal",
+      "target": "idp-keycloak",
+      "kind": "client_to_idp"
+    },
+    {
+      "id": "e-runtime-identity",
+      "source": "agent-travel",
+      "target": "identity-default",
+      "kind": "runtime_to_identity"
+    },
+    {
+      "id": "e-gateway-identity",
+      "source": "gateway-enterprise-tools",
+      "target": "identity-default",
+      "kind": "gateway_to_identity"
+    },
+    {
+      "id": "e-identity-keycloak-slack",
+      "source": "identity-default",
+      "target": "idp-keycloak",
+      "kind": "identity_to_authorization_server",
+      "label": "Provider: slack-bot",
+      "credentialProviderName": "slack-bot",
+      "credentialProviderFlow": "CLIENT_CREDENTIALS"
+    }
+  ],
+  "initialUserPrompt": "Post the expense summary to Slack.",
+  "mutations": [],
+  "expectedLearningOutcomes": [
+    "Direct MCP can succeed but loses central policy and credential mediation.",
+    "Gateway-mediated MCP adds policy, audit and Identity-based outbound credentials."
+  ]
+}

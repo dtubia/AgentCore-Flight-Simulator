@@ -13,6 +13,8 @@ export interface TimelineEvent {
   id: string;
   index: number;
   title: string;
+  stepId?: string;
+  edgeId?: string;
   sourceNodeId: string;
   targetNodeId: string;
   protocol: "OAuth2" | "OIDC" | "HTTP" | "MCP" | "A2A" | "AgentCoreIdentity" | "Policy" | "SigV4";

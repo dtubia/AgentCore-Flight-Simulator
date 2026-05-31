@@ -3,6 +3,7 @@ import type { ScenarioEdge } from "./edges";
 import type { SecurityFinding } from "./findings";
 import type { ScenarioNode } from "./nodes";
 import type { TimelineEvent } from "./events";
+import type { ScenarioStep } from "./steps";
 
 export interface MutationConfig {
   id: string;
@@ -20,6 +21,7 @@ export interface Scenario {
   description: string;
   nodes: ScenarioNode[];
   edges: ScenarioEdge[];
+  steps?: ScenarioStep[];
   selectedPath?: string[];
   initialUserPrompt: string;
   mutations: MutationConfig[];
@@ -28,7 +30,7 @@ export interface Scenario {
 
 export interface SimulationInput {
   scenario: Scenario;
-  selectedPath?: string[];
+  steps?: ScenarioStep[];
   userPrompt: string;
   mutations: MutationConfig[];
 }
@@ -36,6 +38,7 @@ export interface SimulationInput {
 export interface SimulationResult {
   status: "success" | "failed" | "partial";
   events: TimelineEvent[];
+  steps: ScenarioStep[];
   securityFindings: SecurityFinding[];
   generatedArtifacts: {
     mermaid: string;
@@ -51,6 +54,7 @@ export const scenarioSchema = z.object({
   description: z.string(),
   nodes: z.array(z.record(z.unknown())),
   edges: z.array(z.record(z.unknown())),
+  steps: z.array(z.record(z.unknown())).optional(),
   selectedPath: z.array(z.string()).optional(),
   initialUserPrompt: z.string(),
   mutations: z.array(

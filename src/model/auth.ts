@@ -1,5 +1,14 @@
 export type AuthMode = "OAUTH_JWT" | "AWS_IAM_SIGV4" | "NONE";
 
+export interface TokenAuthorizationDetail {
+  type: string;
+  locations?: string[];
+  actions?: string[];
+  resources?: string[];
+  tools?: string[];
+  [key: string]: unknown;
+}
+
 export interface SigV4AuthConfig {
   region: string;
   service: "bedrock-agentcore" | string;
@@ -80,4 +89,6 @@ export interface TokenArtifact {
   boundActor?: string;
   boundSubject?: string;
   downstreamAudience?: string;
+  resource?: string | string[];
+  authorizationDetails?: TokenAuthorizationDetail[];
 }
